@@ -4,13 +4,90 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ExpenseEntry } from "@/types/invoice";
 
 interface FileUploaderProps {
-  onFilesSelected: (files: File[]) => void;
+  onFilesProcessed: (entries: ExpenseEntry[]) => void;
   isProcessing: boolean;
+  setIsProcessing: (value: boolean) => void;
 }
 
-export const FileUploader = ({ onFilesSelected, isProcessing }: FileUploaderProps) => {
+// Sample data generator - returns demo entries based on uploaded files
+const generateSampleEntries = (files: File[]): ExpenseEntry[] => {
+  const sampleData = [
+    {
+      supplier_tax_id: "16446274",
+      supplier_name: "台灣高鐵股份有限公司",
+      item_description: "高鐵票 台北-台中",
+      amount: 1440,
+      debit_account: "旅費",
+      debit_item: "國內交通",
+      notes: "出差交通費",
+    },
+    {
+      supplier_tax_id: "70813124",
+      supplier_name: "台灣大車隊股份有限公司",
+      item_description: "計程車資",
+      amount: 350,
+      debit_account: "交通費",
+      debit_item: "市內交通",
+      notes: "往返車站",
+    },
+    {
+      supplier_tax_id: "23456789",
+      supplier_name: "晶華國際酒店股份有限公司",
+      item_description: "住宿費用",
+      amount: 4500,
+      debit_account: "住宿費",
+      debit_item: "國內住宿",
+      notes: "出差住宿",
+    },
+    {
+      supplier_tax_id: "12345678",
+      supplier_name: "王品餐飲股份有限公司",
+      item_description: "餐飲費用",
+      amount: 680,
+      debit_account: "餐飲費",
+      debit_item: "商務餐費",
+      notes: "客戶餐敘",
+    },
+  ];
+
+  return files.map((file, index) => {
+    const sample = sampleData[index % sampleData.length];
+    const today = new Date().toISOString().split('T')[0];
+    
+    return {
+      id: crypto.randomUUID(),
+      filename: file.name,
+      supplier_tax_id: sample.supplier_tax_id,
+      supplier_name: sample.supplier_name,
+      invoice_date: today,
+      item_description: sample.item_description,
+      amount_exclusive_tax: Math.round(sample.amount / 1.05),
+      tax_amount: Math.round(sample.amount - sample.amount / 1.05),
+      amount_inclusive_tax: sample.amount,
+      page_number: 1,
+      output_type: "員工",
+      payment_method: "電匯",
+      expense_date: today,
+      content: sample.item_description,
+      quantity: 1,
+      unit_price: sample.amount,
+      currency: "TWD",
+      amount: sample.amount,
+      notes: sample.notes,
+      debit_account: sample.debit_account,
+      debit_item: sample.debit_item,
+      debit_summary: sample.item_description,
+      credit_account: "應付帳款",
+      credit_item: "一般供應商",
+      credit_summary: "差旅費",
+    };
+  });
+};
+
+export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing }: FileUploaderProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const { toast } = useToast();
@@ -88,8 +165,21 @@ export const FileUploader = ({ onFilesSelected, isProcessing }: FileUploaderProp
       });
       return;
     }
-    onFilesSelected(selectedFiles);
-    setSelectedFiles([]);
+    
+    setIsProcessing(true);
+    
+    // Simulate processing delay
+    setTimeout(() => {
+      const entries = generateSampleEntries(selectedFiles);
+      onFilesProcessed(entries);
+      setSelectedFiles([]);
+      setIsProcessing(false);
+      
+      toast({
+        title: "辨識完成",
+        description: `已成功處理 ${entries.length} 筆票據資料（範例資料）`,
+      });
+    }, 1000);
   };
 
   return (

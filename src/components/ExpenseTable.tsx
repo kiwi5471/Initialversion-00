@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +10,7 @@ import {
 import { Plus, Trash2, ChevronUp, ChevronDown, Download } from "lucide-react";
 import { ExpenseEntry } from "@/types/invoice";
 import { useToast } from "@/hooks/use-toast";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 interface ExpenseTableProps {
   entries: ExpenseEntry[];
@@ -85,12 +84,10 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
         
         const updated = { ...entry, [field]: value };
         
-        // Auto-calculate amount if quantity or unit_price changes
         if (field === "quantity" || field === "unit_price") {
           updated.amount = updated.quantity * updated.unit_price;
         }
         
-        // Reset payment_method if output_type changes
         if (field === "output_type") {
           updated.payment_method = value === "員工" ? "電匯" : "外幣";
         }
@@ -102,49 +99,17 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
 
   const exportToCSV = () => {
     const headers = [
-      "編號",
-      "檔案名稱",
-      "供應商統一編號",
-      "供應商名稱",
-      "憑證日期",
-      "輸出",
-      "付款方式",
-      "日期",
-      "內容",
-      "數量",
-      "單價",
-      "幣別",
-      "金額",
-      "備註",
-      "借方科目",
-      "借方項目",
-      "借方摘要",
-      "貸方科目",
-      "貸方項目",
-      "貸方摘要",
+      "編號", "檔案名稱", "供應商統一編號", "供應商名稱", "憑證日期",
+      "輸出", "付款方式", "日期", "內容", "數量", "單價", "幣別", "金額", "備註",
+      "借方科目", "借方項目", "借方摘要", "貸方科目", "貸方項目", "貸方摘要",
     ];
 
     const rows = entries.map((entry, index) => [
-      index + 1,
-      entry.filename,
-      entry.supplier_tax_id,
-      entry.supplier_name,
-      entry.invoice_date,
-      entry.output_type,
-      entry.payment_method,
-      entry.expense_date,
-      entry.content,
-      entry.quantity,
-      entry.unit_price,
-      entry.currency,
-      entry.amount,
-      entry.notes,
-      entry.debit_account,
-      entry.debit_item,
-      entry.debit_summary,
-      entry.credit_account,
-      entry.credit_item,
-      entry.credit_summary,
+      index + 1, entry.filename, entry.supplier_tax_id, entry.supplier_name, entry.invoice_date,
+      entry.output_type, entry.payment_method, entry.expense_date, entry.content,
+      entry.quantity, entry.unit_price, entry.currency, entry.amount, entry.notes,
+      entry.debit_account, entry.debit_item, entry.debit_summary,
+      entry.credit_account, entry.credit_item, entry.credit_summary,
     ]);
 
     const csvContent = [
@@ -152,18 +117,13 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
       ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
     ].join("\n");
 
-    const blob = new Blob(["\ufeff" + csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `expense_report_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
 
-    toast({
-      title: "匯出成功",
-      description: "出差精算表已匯出為 CSV 檔案",
-    });
+    toast({ title: "匯出成功", description: "出差精算表已匯出為 CSV 檔案" });
   };
 
   const exportToJSON = () => {
@@ -174,10 +134,7 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
     link.download = `expense_report_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
 
-    toast({
-      title: "匯出成功",
-      description: "出差精算表已匯出為 JSON 檔案",
-    });
+    toast({ title: "匯出成功", description: "出差精算表已匯出為 JSON 檔案" });
   };
 
   if (entries.length === 0) {
@@ -192,6 +149,24 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
     );
   }
 
+  // Field cell component with stacked layout (label on top, input below)
+  const FieldCell = ({ 
+    label, 
+    children, 
+    className = "" 
+  }: { 
+    label: string; 
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
@@ -203,83 +178,78 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
           </Button>
           <Button onClick={exportToCSV} variant="outline" size="sm">
             <Download className="mr-2 h-4 w-4" />
-            匯出 CSV
+            CSV
           </Button>
           <Button onClick={exportToJSON} variant="outline" size="sm">
             <Download className="mr-2 h-4 w-4" />
-            匯出 JSON
+            JSON
           </Button>
         </div>
       </div>
 
-      <ScrollArea className="w-full rounded-md border">
-        <div className="min-w-[1800px]">
-          <table className="w-full">
-            <thead className="bg-table-header text-table-header-foreground sticky top-0 z-10">
-              <tr>
-                <th className="p-2 text-left text-xs font-medium">編號</th>
-                <th className="p-2 text-left text-xs font-medium">檔案名稱</th>
-                <th className="p-2 text-left text-xs font-medium">統一編號</th>
-                <th className="p-2 text-left text-xs font-medium">廠商名稱</th>
-                <th className="p-2 text-left text-xs font-medium">憑證日期</th>
-                <th className="p-2 text-left text-xs font-medium">輸出</th>
-                <th className="p-2 text-left text-xs font-medium">付款方式</th>
-                <th className="p-2 text-left text-xs font-medium">日期</th>
-                <th className="p-2 text-left text-xs font-medium">內容</th>
-                <th className="p-2 text-left text-xs font-medium">數量</th>
-                <th className="p-2 text-left text-xs font-medium">單價</th>
-                <th className="p-2 text-left text-xs font-medium">幣別</th>
-                <th className="p-2 text-left text-xs font-medium">金額</th>
-                <th className="p-2 text-left text-xs font-medium">備註</th>
-                <th className="p-2 text-left text-xs font-medium">借方科目</th>
-                <th className="p-2 text-left text-xs font-medium">借方項目</th>
-                <th className="p-2 text-left text-xs font-medium">借方摘要</th>
-                <th className="p-2 text-left text-xs font-medium">貸方科目</th>
-                <th className="p-2 text-left text-xs font-medium">貸方項目</th>
-                <th className="p-2 text-left text-xs font-medium">貸方摘要</th>
-                <th className="p-2 text-left text-xs font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry, index) => (
-                <tr key={entry.id} className="border-b hover:bg-muted/50">
-                  <td className="p-2 text-sm">{index + 1}</td>
-                  <td className="p-2">
-                    <Input
-                      value={entry.filename}
-                      onChange={(e) => updateEntry(entry.id, "filename", e.target.value)}
-                      className="h-8 text-xs"
-                      readOnly
-                    />
-                  </td>
-                  <td className="p-2">
+      <ScrollArea className="w-full rounded-lg border bg-card">
+        <div className="min-w-[1600px] p-4">
+          {entries.map((entry, index) => (
+            <div 
+              key={entry.id} 
+              className="mb-4 p-4 rounded-lg border bg-muted/30 hover:bg-muted/50 transition-colors"
+            >
+              {/* Row Header */}
+              <div className="flex items-center justify-between mb-3 pb-2 border-b">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold text-primary">#{index + 1}</span>
+                  <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                    {entry.filename || "新增項目"}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => moveEntry(entry.id, "up")} disabled={index === 0} className="h-7 w-7 p-0">
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => moveEntry(entry.id, "down")} disabled={index === entries.length - 1} className="h-7 w-7 p-0">
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeEntry(entry.id)} className="h-7 w-7 p-0 text-destructive hover:text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Fields Grid - Horizontal scroll with stacked labels */}
+              <div className="flex gap-3">
+                {/* 來源資料 */}
+                <div className="flex-shrink-0 space-y-3 p-3 rounded-md bg-background/50 border">
+                  <div className="text-xs font-semibold text-primary mb-2">來源資料</div>
+                  <FieldCell label="統一編號">
                     <Input
                       value={entry.supplier_tax_id}
                       onChange={(e) => updateEntry(entry.id, "supplier_tax_id", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-28"
                     />
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="廠商名稱">
                     <Input
                       value={entry.supplier_name}
                       onChange={(e) => updateEntry(entry.id, "supplier_name", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-36"
                     />
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="憑證日期">
                     <Input
                       type="date"
                       value={entry.invoice_date}
                       onChange={(e) => updateEntry(entry.id, "invoice_date", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-32"
                     />
-                  </td>
-                  <td className="p-2">
-                    <Select
-                      value={entry.output_type}
-                      onValueChange={(value) => updateEntry(entry.id, "output_type", value)}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
+                  </FieldCell>
+                </div>
+
+                {/* 報支設定 */}
+                <div className="flex-shrink-0 space-y-3 p-3 rounded-md bg-background/50 border">
+                  <div className="text-xs font-semibold text-primary mb-2">報支設定</div>
+                  <FieldCell label="輸出">
+                    <Select value={entry.output_type} onValueChange={(value) => updateEntry(entry.id, "output_type", value)}>
+                      <SelectTrigger className="h-8 text-xs w-24">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -287,14 +257,10 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                         <SelectItem value="廠商">廠商</SelectItem>
                       </SelectContent>
                     </Select>
-                  </td>
-                  <td className="p-2">
-                    <Select
-                      value={entry.payment_method}
-                      onValueChange={(value) => updateEntry(entry.id, "payment_method", value)}
-                      disabled={entry.output_type === "員工"}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
+                  </FieldCell>
+                  <FieldCell label="付款方式">
+                    <Select value={entry.payment_method} onValueChange={(value) => updateEntry(entry.id, "payment_method", value)} disabled={entry.output_type === "員工"}>
+                      <SelectTrigger className="h-8 text-xs w-24">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -308,167 +274,138 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                         )}
                       </SelectContent>
                     </Select>
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="date"
-                      value={entry.expense_date}
-                      onChange={(e) => updateEntry(entry.id, "expense_date", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      value={entry.content}
-                      onChange={(e) => updateEntry(entry.id, "content", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="number"
-                      value={entry.quantity}
-                      onChange={(e) => updateEntry(entry.id, "quantity", parseFloat(e.target.value) || 0)}
-                      className="h-8 text-xs w-20"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="number"
-                      value={entry.unit_price}
-                      onChange={(e) => updateEntry(entry.id, "unit_price", parseFloat(e.target.value) || 0)}
-                      className="h-8 text-xs w-24"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Select
-                      value={entry.currency}
-                      onValueChange={(value) => updateEntry(entry.id, "currency", value)}
-                    >
-                      <SelectTrigger className="h-8 text-xs w-20">
+                  </FieldCell>
+                </div>
+
+                {/* 報支內容 */}
+                <div className="flex-shrink-0 space-y-3 p-3 rounded-md bg-background/50 border">
+                  <div className="text-xs font-semibold text-primary mb-2">報支內容</div>
+                  <div className="flex gap-3">
+                    <FieldCell label="日期">
+                      <Input
+                        type="date"
+                        value={entry.expense_date}
+                        onChange={(e) => updateEntry(entry.id, "expense_date", e.target.value)}
+                        className="h-8 text-xs w-32"
+                      />
+                    </FieldCell>
+                    <FieldCell label="內容">
+                      <Input
+                        value={entry.content}
+                        onChange={(e) => updateEntry(entry.id, "content", e.target.value)}
+                        className="h-8 text-xs w-32"
+                      />
+                    </FieldCell>
+                  </div>
+                  <div className="flex gap-3">
+                    <FieldCell label="數量">
+                      <Input
+                        type="number"
+                        value={entry.quantity}
+                        onChange={(e) => updateEntry(entry.id, "quantity", parseFloat(e.target.value) || 0)}
+                        className="h-8 text-xs w-16"
+                      />
+                    </FieldCell>
+                    <FieldCell label="單價">
+                      <Input
+                        type="number"
+                        value={entry.unit_price}
+                        onChange={(e) => updateEntry(entry.id, "unit_price", parseFloat(e.target.value) || 0)}
+                        className="h-8 text-xs w-24"
+                      />
+                    </FieldCell>
+                    <FieldCell label="幣別">
+                      <Select value={entry.currency} onValueChange={(value) => updateEntry(entry.id, "currency", value)}>
+                        <SelectTrigger className="h-8 text-xs w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </FieldCell>
+                  </div>
+                  <div className="flex gap-3">
+                    <FieldCell label="金額">
+                      <Input
+                        type="number"
+                        value={entry.amount}
+                        onChange={(e) => updateEntry(entry.id, "amount", parseFloat(e.target.value) || 0)}
+                        className="h-8 text-xs w-24 font-semibold"
+                      />
+                    </FieldCell>
+                    <FieldCell label="備註">
+                      <Input
+                        value={entry.notes}
+                        onChange={(e) => updateEntry(entry.id, "notes", e.target.value)}
+                        className="h-8 text-xs w-32"
+                      />
+                    </FieldCell>
+                  </div>
+                </div>
+
+                {/* 借方會計 */}
+                <div className="flex-shrink-0 space-y-3 p-3 rounded-md bg-background/50 border">
+                  <div className="text-xs font-semibold text-amber-600 mb-2">借方 (Dr)</div>
+                  <FieldCell label="科目">
+                    <Select value={entry.debit_account} onValueChange={(value) => updateEntry(entry.id, "debit_account", value)}>
+                      <SelectTrigger className="h-8 text-xs w-24">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {CURRENCIES.map((currency) => (
-                          <SelectItem key={currency} value={currency}>
-                            {currency}
-                          </SelectItem>
-                        ))}
+                        {DEBIT_ACCOUNTS.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      type="number"
-                      value={entry.amount}
-                      onChange={(e) => updateEntry(entry.id, "amount", parseFloat(e.target.value) || 0)}
-                      className="h-8 text-xs w-24"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      value={entry.notes}
-                      onChange={(e) => updateEntry(entry.id, "notes", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Select
-                      value={entry.debit_account}
-                      onValueChange={(value) => updateEntry(entry.id, "debit_account", value)}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DEBIT_ACCOUNTS.map((account) => (
-                          <SelectItem key={account} value={account}>
-                            {account}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="項目">
                     <Input
                       value={entry.debit_item}
                       onChange={(e) => updateEntry(entry.id, "debit_item", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-28"
                     />
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="摘要">
                     <Input
                       value={entry.debit_summary}
                       onChange={(e) => updateEntry(entry.id, "debit_summary", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-32"
                     />
-                  </td>
-                  <td className="p-2">
-                    <Select
-                      value={entry.credit_account}
-                      onValueChange={(value) => updateEntry(entry.id, "credit_account", value)}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
+                  </FieldCell>
+                </div>
+
+                {/* 貸方會計 */}
+                <div className="flex-shrink-0 space-y-3 p-3 rounded-md bg-background/50 border">
+                  <div className="text-xs font-semibold text-emerald-600 mb-2">貸方 (Cr)</div>
+                  <FieldCell label="科目">
+                    <Select value={entry.credit_account} onValueChange={(value) => updateEntry(entry.id, "credit_account", value)}>
+                      <SelectTrigger className="h-8 text-xs w-24">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {CREDIT_ACCOUNTS.map((account) => (
-                          <SelectItem key={account} value={account}>
-                            {account}
-                          </SelectItem>
-                        ))}
+                        {CREDIT_ACCOUNTS.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="項目">
                     <Input
                       value={entry.credit_item}
                       onChange={(e) => updateEntry(entry.id, "credit_item", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-28"
                     />
-                  </td>
-                  <td className="p-2">
+                  </FieldCell>
+                  <FieldCell label="摘要">
                     <Input
                       value={entry.credit_summary}
                       onChange={(e) => updateEntry(entry.id, "credit_summary", e.target.value)}
-                      className="h-8 text-xs"
+                      className="h-8 text-xs w-32"
                     />
-                  </td>
-                  <td className="p-2">
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => moveEntry(entry.id, "up")}
-                        disabled={index === 0}
-                        className="h-7 w-7 p-0"
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => moveEntry(entry.id, "down")}
-                        disabled={index === entries.length - 1}
-                        className="h-7 w-7 p-0"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeEntry(entry.id)}
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </FieldCell>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
+        <ScrollBar orientation="horizontal" />
       </ScrollArea>
     </div>
   );

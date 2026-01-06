@@ -1,10 +1,9 @@
 import { useCallback, useState } from "react";
-import { Upload, Image as ImageIcon, X, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ReceiptUploaderProps {
-  onImageUpload: (imageUrl: string, fileName: string) => void;
+  onImageUpload: (imageUrl: string, fileName: string, file: File) => void;
   isProcessing: boolean;
 }
 
@@ -17,7 +16,7 @@ export function ReceiptUploader({ onImageUpload, isProcessing }: ReceiptUploader
         return;
       }
       const url = URL.createObjectURL(file);
-      onImageUpload(url, file.name);
+      onImageUpload(url, file.name, file);
     },
     [onImageUpload]
   );
@@ -75,7 +74,7 @@ export function ReceiptUploader({ onImageUpload, isProcessing }: ReceiptUploader
         {isProcessing ? (
           <>
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <p className="text-sm font-medium text-foreground">處理中...</p>
+            <p className="text-sm font-medium text-foreground">AI 辨識處理中...</p>
           </>
         ) : (
           <>

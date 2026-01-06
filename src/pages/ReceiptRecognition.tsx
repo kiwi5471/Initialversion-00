@@ -6,33 +6,11 @@ import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RotateCcw } from "lucide-react";
-
-// Generate random mock data for uploaded images
-const generateMockData = (fileName: string) => {
-  const timestamp = Date.now();
-  
-  const ocrBlocks: OCRBlock[] = [
-    { id: `b${timestamp}_1`, page: 1, text: "統一發票", bbox: { x: 0.25, y: 0.05, w: 0.5, h: 0.06 } },
-    { id: `b${timestamp}_2`, page: 1, text: "2024/01/20", bbox: { x: 0.3, y: 0.14, w: 0.4, h: 0.04 } },
-    { id: `b${timestamp}_3`, page: 1, text: "高鐵車票 NT$1,490", bbox: { x: 0.15, y: 0.24, w: 0.7, h: 0.05 } },
-    { id: `b${timestamp}_4`, page: 1, text: "計程車 NT$285", bbox: { x: 0.15, y: 0.34, w: 0.7, h: 0.05 } },
-    { id: `b${timestamp}_5`, page: 1, text: "統一編號 87654321", bbox: { x: 0.2, y: 0.44, w: 0.6, h: 0.04 } },
-    { id: `b${timestamp}_6`, page: 1, text: "文具用品 NT$456", bbox: { x: 0.15, y: 0.54, w: 0.7, h: 0.05 } },
-    { id: `b${timestamp}_7`, page: 1, text: "午餐便當 NT$120", bbox: { x: 0.15, y: 0.64, w: 0.7, h: 0.05 } },
-    { id: `b${timestamp}_8`, page: 1, text: "總計 NT$2,351", bbox: { x: 0.25, y: 0.78, w: 0.5, h: 0.06 } },
-  ];
-
-  const items: RecognitionItem[] = [
-    { id: `i${timestamp}_1`, name: "高鐵車票", amount: 1490, category: "transportation", confirmed: false, sourceBlockIds: [`b${timestamp}_1`, `b${timestamp}_3`] },
-    { id: `i${timestamp}_2`, name: "計程車", amount: 285, category: "transportation", confirmed: false, sourceBlockIds: [`b${timestamp}_4`] },
-    { id: `i${timestamp}_3`, name: "文具用品", amount: 456, category: "equipment", confirmed: false, sourceBlockIds: [`b${timestamp}_6`] },
-    { id: `i${timestamp}_4`, name: "午餐便當", amount: 120, category: "meals", confirmed: false, sourceBlockIds: [`b${timestamp}_7`] },
-  ];
-
-  return { ocrBlocks, items };
-};
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ReceiptRecognition() {
+  const { toast } = useToast();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [items, setItems] = useState<RecognitionItem[]>([]);
@@ -42,22 +20,62 @@ export default function ReceiptRecognition() {
   const [activeBlockIds, setActiveBlockIds] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleImageUpload = useCallback((url: string, name: string) => {
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+    });
+  };
+
+  const handleImageUpload = useCallback(async (url: string, name: string, file: File) => {
     setIsProcessing(true);
     setImageUrl(url);
     setFileName(name);
+    setItems([]);
+    setOcrBlocks([]);
 
-    // Simulate processing delay
-    setTimeout(() => {
-      const mockData = generateMockData(name);
-      setOcrBlocks(mockData.ocrBlocks);
-      setItems(mockData.items);
+    try {
+      // Convert file to base64
+      const imageData = await fileToBase64(file);
+
+      // Call OCR edge function
+      const { data, error } = await supabase.functions.invoke('receipt-ocr', {
+        body: { imageData, filename: name }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || '辨識失敗');
+      }
+
+      // Set the extracted data
+      setItems(data.data.items || []);
+      setOcrBlocks(data.data.ocrBlocks || []);
+
+      toast({
+        title: "辨識完成",
+        description: `成功識別 ${data.data.items?.length || 0} 筆費用項目`,
+      });
+
+    } catch (error) {
+      console.error('OCR error:', error);
+      toast({
+        title: "辨識失敗",
+        description: error instanceof Error ? error.message : "無法處理圖片",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
       setActiveItemId(null);
       setActiveBlockIds([]);
       setHighlightedItemIds([]);
-      setIsProcessing(false);
-    }, 1500);
-  }, []);
+    }
+  }, [toast]);
 
   const handleReset = useCallback(() => {
     if (imageUrl) {
@@ -132,7 +150,7 @@ export default function ReceiptRecognition() {
               票據憑證辨識系統
             </h1>
             <p className="text-muted-foreground">
-              上傳憑證，自動擷取會計資料，點擊項目可查看對應的 OCR 識別區域
+              上傳憑證，AI 自動擷取會計資料，點擊項目可查看對應的 OCR 識別區域
             </p>
           </div>
           {imageUrl && (
@@ -172,7 +190,7 @@ export default function ReceiptRecognition() {
                   <div className="flex items-center justify-center py-12">
                     <div className="text-center space-y-3">
                       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                      <p className="text-sm text-muted-foreground">正在辨識中...</p>
+                      <p className="text-sm text-muted-foreground">AI 正在辨識中...</p>
                     </div>
                   </div>
                 ) : items.length > 0 ? (

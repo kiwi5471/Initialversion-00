@@ -1,1 +1,7 @@
 project_id = "rrvmetyozwlhhqvtfeir"
+
+[functions.ocr-extract]
+verify_jwt = false
+
+[functions.receipt-ocr]
+verify_jwt = false

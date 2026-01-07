@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+
 interface ReceiptUploaderProps {
   onImageUpload: (imageUrl: string, fileName: string, file: File) => void;
   isProcessing: boolean;

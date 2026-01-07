@@ -1,4 +1,7 @@
-// PDF utility functions using dynamic import to avoid top-level await issues
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set the worker source for pdfjs-dist v3.x
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 export interface PDFPage {
   pageNumber: number;
@@ -15,12 +18,6 @@ export function isImage(file: File): boolean {
 }
 
 export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
-  // Dynamically import pdfjs-dist to avoid top-level await build issues
-  const pdfjsLib = await import('pdfjs-dist');
-  
-  // Set worker source using CDN
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages: PDFPage[] = [];

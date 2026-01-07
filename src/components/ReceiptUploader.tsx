@@ -1,35 +1,76 @@
 import { useCallback, useState } from "react";
-import { Upload, Loader2 } from "lucide-react";
+import { Upload, Loader2, FileText, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isPDF, isImage, convertPDFToImages } from "@/lib/pdfUtils";
 
+export interface UploadedFile {
+  id: string;
+  fileName: string;
+  imageUrl: string;
+  file: File;
+  pageNumber?: number;
+}
 
 interface ReceiptUploaderProps {
-  onImageUpload: (imageUrl: string, fileName: string, file: File) => void;
+  onFilesUpload: (files: UploadedFile[]) => void;
   isProcessing: boolean;
 }
 
-export function ReceiptUploader({ onImageUpload, isProcessing }: ReceiptUploaderProps) {
+export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      if (!file.type.startsWith("image/")) {
-        return;
+  const processFiles = useCallback(
+    async (fileList: FileList) => {
+      setIsConverting(true);
+      const uploadedFiles: UploadedFile[] = [];
+
+      try {
+        for (let i = 0; i < fileList.length; i++) {
+          const file = fileList[i];
+          
+          if (isPDF(file)) {
+            // Convert PDF pages to images
+            const pages = await convertPDFToImages(file);
+            pages.forEach((page) => {
+              uploadedFiles.push({
+                id: `${file.name}-page-${page.pageNumber}-${Date.now()}`,
+                fileName: `${file.name} (第 ${page.pageNumber} 頁)`,
+                imageUrl: page.imageUrl,
+                file: page.file,
+                pageNumber: page.pageNumber,
+              });
+            });
+          } else if (isImage(file)) {
+            const url = URL.createObjectURL(file);
+            uploadedFiles.push({
+              id: `${file.name}-${Date.now()}-${i}`,
+              fileName: file.name,
+              imageUrl: url,
+              file: file,
+            });
+          }
+        }
+
+        if (uploadedFiles.length > 0) {
+          onFilesUpload(uploadedFiles);
+        }
+      } finally {
+        setIsConverting(false);
       }
-      const url = URL.createObjectURL(file);
-      onImageUpload(url, file.name, file);
     },
-    [onImageUpload]
+    [onFilesUpload]
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
+      if (e.dataTransfer.files.length > 0) {
+        processFiles(e.dataTransfer.files);
+      }
     },
-    [handleFile]
+    [processFiles]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -44,11 +85,14 @@ export function ReceiptUploader({ onImageUpload, isProcessing }: ReceiptUploader
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) handleFile(file);
+      if (e.target.files && e.target.files.length > 0) {
+        processFiles(e.target.files);
+      }
     },
-    [handleFile]
+    [processFiles]
   );
+
+  const showLoading = isProcessing || isConverting;
 
   return (
     <div
@@ -60,34 +104,42 @@ export function ReceiptUploader({ onImageUpload, isProcessing }: ReceiptUploader
         isDragOver
           ? "border-primary bg-primary/5"
           : "border-muted-foreground/25 hover:border-primary/50",
-        isProcessing && "pointer-events-none opacity-60"
+        showLoading && "pointer-events-none opacity-60"
       )}
     >
       <input
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,application/pdf"
+        multiple
         onChange={handleInputChange}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        disabled={isProcessing}
+        disabled={showLoading}
       />
 
       <div className="flex flex-col items-center gap-3">
-        {isProcessing ? (
+        {showLoading ? (
           <>
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <p className="text-sm font-medium text-foreground">AI 辨識處理中...</p>
+            <p className="text-sm font-medium text-foreground">
+              {isConverting ? "PDF 轉換中..." : "AI 辨識處理中..."}
+            </p>
           </>
         ) : (
           <>
-            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
-              <Upload className="w-7 h-7 text-primary" />
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
+                <ImageIcon className="w-7 h-7 text-primary" />
+              </div>
+              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/10">
+                <FileText className="w-7 h-7 text-primary" />
+              </div>
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">
-                拖放收據圖片至此處
+                拖放收據圖片或 PDF 至此處
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                或點擊選擇檔案（支援 JPG、PNG、WEBP）
+                支援多選檔案（JPG、PNG、WEBP、PDF）
               </p>
             </div>
           </>

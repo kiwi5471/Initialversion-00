@@ -1,7 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set the worker source
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
+// PDF utility functions using dynamic import to avoid top-level await issues
 
 export interface PDFPage {
   pageNumber: number;
@@ -9,7 +6,21 @@ export interface PDFPage {
   file: File;
 }
 
+export function isPDF(file: File): boolean {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
+export function isImage(file: File): boolean {
+  return file.type.startsWith('image/');
+}
+
 export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
+  // Dynamically import pdfjs-dist to avoid top-level await build issues
+  const pdfjsLib = await import('pdfjs-dist');
+  
+  // Set worker source using CDN
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages: PDFPage[] = [];
@@ -20,7 +31,9 @@ export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d')!;
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
@@ -44,12 +57,4 @@ export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
   }
 
   return pages;
-}
-
-export function isPDF(file: File): boolean {
-  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-}
-
-export function isImage(file: File): boolean {
-  return file.type.startsWith('image/');
 }

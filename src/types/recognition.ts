@@ -11,12 +11,21 @@ export interface OCRBlock {
   id: string;
   page: number;
   text: string;
+  type: string;
+  confidence: number;
   bbox: {
     x: number;
     y: number;
     w: number;
     h: number;
   };
+}
+
+export interface OCRMetadata {
+  vendor_name?: string;
+  tax_id?: string;
+  date?: string;
+  total?: number;
 }
 
 export const CATEGORIES = [

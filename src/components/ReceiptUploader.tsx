@@ -1,40 +1,32 @@
 import { useCallback, useState } from "react";
-import { Upload, Loader2, FileText, Image as ImageIcon } from "lucide-react";
+import { Loader2, FileText, Image as ImageIcon, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isPDF, isImage, convertPDFToImages } from "@/lib/pdfUtils";
-
-export interface UploadedFile {
-  id: string;
-  fileName: string;
-  imageUrl: string;
-  file: File;
-  pageNumber?: number;
-}
+import { UploadedFileItem } from "@/types/batch";
 
 interface ReceiptUploaderProps {
-  onFilesUpload: (files: UploadedFile[]) => void;
-  isProcessing: boolean;
+  onFilesAdd: (files: UploadedFileItem[]) => void;
+  disabled?: boolean;
 }
 
-export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploaderProps) {
+export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
 
   const processFiles = useCallback(
     async (fileList: FileList) => {
       setIsConverting(true);
-      const uploadedFiles: UploadedFile[] = [];
+      const uploadedFiles: UploadedFileItem[] = [];
 
       try {
         for (let i = 0; i < fileList.length; i++) {
           const file = fileList[i];
           
           if (isPDF(file)) {
-            // Convert PDF pages to images
             const pages = await convertPDFToImages(file);
             pages.forEach((page) => {
               uploadedFiles.push({
-                id: `${file.name}-page-${page.pageNumber}-${Date.now()}`,
+                id: `${file.name}-page-${page.pageNumber}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 fileName: `${file.name} (第 ${page.pageNumber} 頁)`,
                 imageUrl: page.imageUrl,
                 file: page.file,
@@ -44,7 +36,7 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
           } else if (isImage(file)) {
             const url = URL.createObjectURL(file);
             uploadedFiles.push({
-              id: `${file.name}-${Date.now()}-${i}`,
+              id: `${file.name}-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
               fileName: file.name,
               imageUrl: url,
               file: file,
@@ -53,24 +45,24 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
         }
 
         if (uploadedFiles.length > 0) {
-          onFilesUpload(uploadedFiles);
+          onFilesAdd(uploadedFiles);
         }
       } finally {
         setIsConverting(false);
       }
     },
-    [onFilesUpload]
+    [onFilesAdd]
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
-      if (e.dataTransfer.files.length > 0) {
+      if (!disabled && e.dataTransfer.files.length > 0) {
         processFiles(e.dataTransfer.files);
       }
     },
-    [processFiles]
+    [processFiles, disabled]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -87,12 +79,13 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
         processFiles(e.target.files);
+        e.target.value = '';
       }
     },
     [processFiles]
   );
 
-  const showLoading = isProcessing || isConverting;
+  const showLoading = isConverting;
 
   return (
     <div
@@ -104,7 +97,7 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
         isDragOver
           ? "border-primary bg-primary/5"
           : "border-muted-foreground/25 hover:border-primary/50",
-        showLoading && "pointer-events-none opacity-60"
+        (showLoading || disabled) && "pointer-events-none opacity-60"
       )}
     >
       <input
@@ -113,7 +106,7 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
         multiple
         onChange={handleInputChange}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-        disabled={showLoading}
+        disabled={showLoading || disabled}
       />
 
       <div className="flex flex-col items-center gap-3">
@@ -121,7 +114,7 @@ export function ReceiptUploader({ onFilesUpload, isProcessing }: ReceiptUploader
           <>
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
             <p className="text-sm font-medium text-foreground">
-              {isConverting ? "PDF 轉換中..." : "AI 辨識處理中..."}
+              PDF 轉換中...
             </p>
           </>
         ) : (

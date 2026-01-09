@@ -1,19 +1,29 @@
 import { useState, useCallback, useMemo } from "react";
 import { RecognitionItem, OCRBlock } from "@/types/recognition";
-import { FileProcessingResult } from "@/types/batch";
-import { UploadedFile, ReceiptUploader } from "@/components/ReceiptUploader";
+import { FileProcessingResult, UploadedFileItem, ExportData } from "@/types/batch";
+import { ReceiptUploader } from "@/components/ReceiptUploader";
+import { UploadFileList } from "@/components/UploadFileList";
 import { RecognitionItemList } from "@/components/RecognitionItemList";
 import { ReceiptPreview } from "@/components/ReceiptPreview";
 import { BatchFileList } from "@/components/BatchFileList";
+import { ExportButtons } from "@/components/ExportButtons";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Play, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+type Step = 'upload' | 'result';
+
 export default function ReceiptRecognition() {
   const { toast } = useToast();
-  const [files, setFiles] = useState<FileProcessingResult[]>([]);
+  const [step, setStep] = useState<Step>('upload');
+  
+  // Step 1 state
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileItem[]>([]);
+  
+  // Step 2 state
+  const [processedFiles, setProcessedFiles] = useState<FileProcessingResult[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [highlightedItemIds, setHighlightedItemIds] = useState<string[]>([]);
@@ -21,8 +31,8 @@ export default function ReceiptRecognition() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const activeFile = useMemo(
-    () => files.find(f => f.id === activeFileId) || null,
-    [files, activeFileId]
+    () => processedFiles.find(f => f.id === activeFileId) || null,
+    [processedFiles, activeFileId]
   );
 
   const fileToBase64 = (file: File): Promise<string> => {
@@ -49,6 +59,7 @@ export default function ReceiptRecognition() {
         status: 'success',
         items: data.data.items || [],
         ocrBlocks: data.data.ocrBlocks || [],
+        metadata: data.data.metadata || {},
       };
     } catch (error) {
       console.error('OCR error:', error);
@@ -60,7 +71,24 @@ export default function ReceiptRecognition() {
     }
   };
 
-  const handleFilesUpload = useCallback(async (uploadedFiles: UploadedFile[]) => {
+  // Step 1 handlers
+  const handleFilesAdd = useCallback((files: UploadedFileItem[]) => {
+    setUploadedFiles(prev => [...prev, ...files]);
+  }, []);
+
+  const handleRemoveFile = useCallback((fileId: string) => {
+    setUploadedFiles(prev => {
+      const file = prev.find(f => f.id === fileId);
+      if (file?.imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(file.imageUrl);
+      }
+      return prev.filter(f => f.id !== fileId);
+    });
+  }, []);
+
+  const handleStartRecognition = useCallback(async () => {
+    if (uploadedFiles.length === 0) return;
+
     // Initialize file results
     const initialResults: FileProcessingResult[] = uploadedFiles.map(uf => ({
       id: uf.id,
@@ -71,47 +99,58 @@ export default function ReceiptRecognition() {
       ocrBlocks: [],
     }));
 
-    setFiles(initialResults);
+    setProcessedFiles(initialResults);
     setActiveFileId(initialResults[0]?.id || null);
+    setStep('result');
     setIsProcessing(true);
 
     // Process files one by one
-    const processedResults = [...initialResults];
+    const results = [...initialResults];
     
     for (let i = 0; i < uploadedFiles.length; i++) {
       // Update status to processing
-      processedResults[i] = { ...processedResults[i], status: 'processing' };
-      setFiles([...processedResults]);
+      results[i] = { ...results[i], status: 'processing' };
+      setProcessedFiles([...results]);
 
       // Process the file
-      const result = await processFile(processedResults[i], uploadedFiles[i].file);
-      processedResults[i] = result;
-      setFiles([...processedResults]);
+      const result = await processFile(results[i], uploadedFiles[i].file);
+      results[i] = result;
+      setProcessedFiles([...results]);
     }
 
     setIsProcessing(false);
 
-    const successCount = processedResults.filter(f => f.status === 'success').length;
-    const totalItems = processedResults.reduce((sum, f) => sum + f.items.length, 0);
+    const successCount = results.filter(f => f.status === 'success').length;
+    const totalItems = results.reduce((sum, f) => sum + f.items.length, 0);
 
     toast({
       title: "批次辨識完成",
-      description: `${successCount}/${processedResults.length} 個檔案成功，共識別 ${totalItems} 筆項目`,
+      description: `${successCount}/${results.length} 個檔案成功，共識別 ${totalItems} 筆項目`,
     });
-  }, [toast]);
+  }, [uploadedFiles, toast]);
 
+  // Step 2 handlers
   const handleReset = useCallback(() => {
-    files.forEach(f => {
+    // Cleanup blob URLs
+    uploadedFiles.forEach(f => {
       if (f.imageUrl.startsWith('blob:')) {
         URL.revokeObjectURL(f.imageUrl);
       }
     });
-    setFiles([]);
+    processedFiles.forEach(f => {
+      if (f.imageUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(f.imageUrl);
+      }
+    });
+
+    setUploadedFiles([]);
+    setProcessedFiles([]);
     setActiveFileId(null);
     setActiveItemId(null);
     setActiveBlockIds([]);
     setHighlightedItemIds([]);
-  }, [files]);
+    setStep('upload');
+  }, [uploadedFiles, processedFiles]);
 
   const handleFileSelect = useCallback((fileId: string) => {
     setActiveFileId(fileId);
@@ -121,6 +160,12 @@ export default function ReceiptRecognition() {
   }, []);
 
   const handleItemClick = useCallback((item: RecognitionItem) => {
+    setActiveItemId(item.id);
+    setActiveBlockIds(item.sourceBlockIds);
+    setHighlightedItemIds([]);
+  }, []);
+
+  const handleLocateItem = useCallback((item: RecognitionItem) => {
     setActiveItemId(item.id);
     setActiveBlockIds(item.sourceBlockIds);
     setHighlightedItemIds([]);
@@ -146,7 +191,7 @@ export default function ReceiptRecognition() {
 
   const handleItemUpdate = useCallback(
     (id: string, updates: Partial<RecognitionItem>) => {
-      setFiles((prev) =>
+      setProcessedFiles((prev) =>
         prev.map((file) => ({
           ...file,
           items: file.items.map((item) =>
@@ -159,7 +204,7 @@ export default function ReceiptRecognition() {
   );
 
   const handleItemDelete = useCallback((id: string) => {
-    setFiles((prev) =>
+    setProcessedFiles((prev) =>
       prev.map((file) => ({
         ...file,
         items: file.items.filter((item) => item.id !== id),
@@ -172,7 +217,7 @@ export default function ReceiptRecognition() {
   }, [activeItemId]);
 
   const handleItemConfirm = useCallback((id: string) => {
-    setFiles((prev) =>
+    setProcessedFiles((prev) =>
       prev.map((file) => ({
         ...file,
         items: file.items.map((item) =>
@@ -184,12 +229,26 @@ export default function ReceiptRecognition() {
 
   const totalAmount = activeFile?.items.reduce((sum, item) => sum + item.amount, 0) || 0;
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
+  // Export data
+  const exportData: ExportData = useMemo(() => ({
+    exportedAt: new Date().toISOString(),
+    files: processedFiles
+      .filter(f => f.status === 'success')
+      .map(f => ({
+        fileName: f.fileName,
+        imageUrl: f.imageUrl,
+        items: f.items,
+        ocrBlocks: f.ocrBlocks,
+        metadata: f.metadata,
+      })),
+  }), [processedFiles]);
+
+  // Step 1: Upload Page
+  if (step === 'upload') {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto py-8 space-y-6 max-w-2xl">
+          <div className="space-y-2 text-center">
             <h1 className="text-3xl font-bold text-foreground">
               票據憑證辨識系統
             </h1>
@@ -197,101 +256,136 @@ export default function ReceiptRecognition() {
               上傳憑證圖片或 PDF，AI 自動批次擷取會計資料
             </p>
           </div>
-          {files.length > 0 && (
-            <Button variant="outline" onClick={handleReset} className="gap-2">
-              <RotateCcw className="w-4 h-4" />
-              重新上傳
-            </Button>
-          )}
-        </div>
 
-        {/* Upload Area - Show when no files */}
-        {files.length === 0 && (
           <Card className="p-6 shadow-lg">
-            <ReceiptUploader
-              onFilesUpload={handleFilesUpload}
-              isProcessing={isProcessing}
+            <ReceiptUploader onFilesAdd={handleFilesAdd} />
+          </Card>
+
+          <Card className="p-6 shadow-lg">
+            <UploadFileList
+              files={uploadedFiles}
+              onRemoveFile={handleRemoveFile}
             />
           </Card>
-        )}
 
-        {/* Main Content - Show when files uploaded */}
-        {files.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Panel: File List + Recognition Results */}
-            <div className="lg:col-span-7 space-y-6">
-              {/* Batch File List */}
-              {files.length > 1 && (
-                <Card className="p-4 shadow-lg">
-                  <BatchFileList
-                    files={files}
-                    activeFileId={activeFileId}
-                    onFileSelect={handleFileSelect}
-                  />
-                </Card>
-              )}
-
-              {/* Recognition Results */}
-              <Card className="p-6 shadow-lg">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-foreground">
-                      辨識結果
-                    </h2>
-                    <span className="text-sm text-muted-foreground">
-                      {activeFile?.fileName} · 共 {activeFile?.items.length || 0} 筆項目
-                    </span>
-                  </div>
-
-                  {activeFile?.status === 'processing' ? (
-                    <div className="flex items-center justify-center py-12">
-                      <div className="text-center space-y-3">
-                        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                        <p className="text-sm text-muted-foreground">AI 正在辨識中...</p>
-                      </div>
-                    </div>
-                  ) : activeFile?.status === 'error' ? (
-                    <div className="text-center py-12 text-destructive">
-                      {activeFile.error || '辨識失敗'}
-                    </div>
-                  ) : activeFile && activeFile.items.length > 0 ? (
-                    <RecognitionItemList
-                      items={activeFile.items}
-                      activeItemId={activeItemId}
-                      highlightedItemIds={highlightedItemIds}
-                      onItemClick={handleItemClick}
-                      onItemUpdate={handleItemUpdate}
-                      onItemDelete={handleItemDelete}
-                      onItemConfirm={handleItemConfirm}
-                    />
-                  ) : (
-                    <div className="text-center py-12 text-muted-foreground">
-                      {activeFile ? '尚無辨識結果' : '請選擇檔案'}
-                    </div>
-                  )}
-                </div>
-              </Card>
+          {uploadedFiles.length > 0 && (
+            <div className="flex justify-center">
+              <Button
+                size="lg"
+                onClick={handleStartRecognition}
+                className="gap-2 px-8"
+              >
+                <Play className="w-5 h-5" />
+                開始辨識 ({uploadedFiles.length} 個檔案)
+              </Button>
             </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-            {/* Right Panel: Receipt Preview */}
-            <Card className="lg:col-span-5 p-6 shadow-lg">
-              {activeFile ? (
-                <ReceiptPreview
-                  imageUrl={activeFile.imageUrl}
-                  ocrBlocks={activeFile.ocrBlocks}
-                  activeBlockIds={activeBlockIds}
-                  onBlockClick={handleBlockClick}
-                  onEmptyClick={handleEmptyClick}
-                  totalAmount={totalAmount}
+  // Step 2: Result Page
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto py-6 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold text-foreground">
+              辨識結果
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {processedFiles.filter(f => f.status === 'success').length}/{processedFiles.length} 個檔案已辨識
+            </p>
+          </div>
+          <Button variant="outline" onClick={handleReset} className="gap-2">
+            <RotateCcw className="w-4 h-4" />
+            重新上傳
+          </Button>
+        </div>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100vh-160px)]">
+          {/* Left Panel */}
+          <div className="lg:col-span-5 flex flex-col gap-4 overflow-hidden">
+            {/* Top: File List */}
+            <Card className="p-4 shadow-lg flex-shrink-0">
+              <BatchFileList
+                files={processedFiles}
+                activeFileId={activeFileId}
+                onFileSelect={handleFileSelect}
+              />
+            </Card>
+
+            {/* Bottom: Recognition Results */}
+            <Card className="p-4 shadow-lg flex-1 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-foreground">
+                  辨識項目
+                </h2>
+                <span className="text-sm text-muted-foreground">
+                  {activeFile?.items.length || 0} 筆
+                </span>
+              </div>
+
+              {activeFile?.status === 'processing' ? (
+                <div className="flex items-center justify-center py-12 flex-1">
+                  <div className="text-center space-y-3">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto" />
+                    <p className="text-sm text-muted-foreground">AI 正在辨識中...</p>
+                  </div>
+                </div>
+              ) : activeFile?.status === 'error' ? (
+                <div className="text-center py-12 text-destructive flex-1">
+                  {activeFile.error || '辨識失敗'}
+                </div>
+              ) : activeFile ? (
+                <RecognitionItemList
+                  items={activeFile.items}
+                  activeItemId={activeItemId}
+                  highlightedItemIds={highlightedItemIds}
+                  onItemClick={handleItemClick}
+                  onItemUpdate={handleItemUpdate}
+                  onItemDelete={handleItemDelete}
+                  onItemConfirm={handleItemConfirm}
+                  onLocateItem={handleLocateItem}
                 />
               ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  請選擇檔案查看預覽
+                <div className="text-center py-12 text-muted-foreground flex-1">
+                  請選擇檔案
                 </div>
               )}
             </Card>
           </div>
-        )}
+
+          {/* Right Panel: Receipt Preview */}
+          <Card className="lg:col-span-7 p-4 shadow-lg flex flex-col">
+            {activeFile ? (
+              <>
+                <div className="flex-1 overflow-hidden">
+                  <ReceiptPreview
+                    imageUrl={activeFile.imageUrl}
+                    ocrBlocks={activeFile.ocrBlocks}
+                    activeBlockIds={activeBlockIds}
+                    onBlockClick={handleBlockClick}
+                    onEmptyClick={handleEmptyClick}
+                    totalAmount={totalAmount}
+                  />
+                </div>
+                
+                {/* Export Buttons */}
+                <div className="pt-4 border-t mt-4 flex justify-end">
+                  <ExportButtons exportData={exportData} />
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                請選擇檔案查看預覽
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

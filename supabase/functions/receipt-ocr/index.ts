@@ -21,7 +21,9 @@ serve(async (req) => {
     
     console.log(`Processing receipt OCR for file: ${filename}`);
 
-    const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用項目。
+    const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用項目和文字區塊。
+
+重要：你必須為每個文字區塊提供精確的 bounding box 座標 (bbox)，座標值為 0-1 之間的正規化數值（相對於圖片寬高）。
 
 請回傳以下格式的 JSON：
 {
@@ -30,14 +32,22 @@ serve(async (req) => {
       "name": "項目名稱（如：高鐵車票、計程車資、午餐便當等）",
       "amount": 金額數字,
       "category": "類別（transportation/meals/accommodation/equipment/misc/other）",
-      "text": "原始 OCR 文字"
+      "sourceBlockIds": ["對應的 ocrBlock id 陣列，如 b_001, b_002"]
     }
   ],
   "ocrBlocks": [
     {
+      "id": "唯一識別碼（格式：b_001, b_002...）",
+      "page": 1,
       "text": "識別出的文字內容",
-      "position": "top/middle/bottom（大致位置）",
-      "type": "title/date/amount/item/tax_id/total/other"
+      "type": "文字類型（title/vendor/date/amount/item/tax_id/total/subtotal/tax/other）",
+      "confidence": 0.95,
+      "bbox": {
+        "x": 0.1,
+        "y": 0.2,
+        "w": 0.3,
+        "h": 0.05
+      }
     }
   ],
   "metadata": {
@@ -47,6 +57,12 @@ serve(async (req) => {
     "total": 總金額數字
   }
 }
+
+bbox 座標說明：
+- x: 文字區塊左上角的 x 座標 (0-1，相對於圖片寬度)
+- y: 文字區塊左上角的 y 座標 (0-1，相對於圖片高度)
+- w: 文字區塊的寬度 (0-1，相對於圖片寬度)
+- h: 文字區塊的高度 (0-1，相對於圖片高度)
 
 類別對照：
 - transportation: 交通費（計程車、高鐵、火車、公車、捷運、機票等）
@@ -59,8 +75,11 @@ serve(async (req) => {
 注意事項：
 1. 金額只回傳數字，不含貨幣符號
 2. 如果看到多個費用項目，請分別列出
-3. ocrBlocks 應包含所有可辨識的文字區塊
-4. 如果無法辨識某項資訊，請省略該欄位`;
+3. 每個 ocrBlock 必須有唯一的 id
+4. items 的 sourceBlockIds 必須對應到 ocrBlocks 的 id
+5. confidence 為 0-1 之間的數值，表示辨識信心度
+6. bbox 座標必須準確反映文字在圖片中的位置
+7. 如果無法辨識某項資訊，請省略該欄位`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: 'POST',
@@ -80,7 +99,7 @@ serve(async (req) => {
             content: [
               {
                 type: 'text',
-                text: '請分析這張收據圖片，擷取所有費用項目和 OCR 文字區塊：'
+                text: '請分析這張收據圖片，擷取所有費用項目和 OCR 文字區塊，並提供精確的 bounding box 座標：'
               },
               {
                 type: 'image_url',
@@ -133,50 +152,54 @@ serve(async (req) => {
       throw new Error('Failed to parse AI response as JSON');
     }
 
-    // Generate OCR blocks with positions for visualization
+    // Validate and format ocrBlocks
     const ocrBlocks = (extractedData.ocrBlocks || []).map((block: any, index: number) => {
-      // Generate approximate bounding boxes based on position
-      const positionMap: Record<string, { y: number }> = {
-        'top': { y: 0.05 + index * 0.08 },
-        'middle': { y: 0.35 + index * 0.08 },
-        'bottom': { y: 0.65 + index * 0.08 },
-      };
-      const pos = positionMap[block.position] || positionMap['middle'];
-      
+      // Ensure bbox exists and has valid values
+      const bbox = block.bbox || {};
       return {
-        id: `block_${Date.now()}_${index}`,
-        page: 1,
-        text: block.text,
-        type: block.type,
+        id: block.id || `b_${String(index + 1).padStart(3, '0')}`,
+        page: block.page || 1,
+        text: block.text || '',
+        type: block.type || 'other',
+        confidence: typeof block.confidence === 'number' ? block.confidence : 0.8,
         bbox: {
-          x: 0.1,
-          y: Math.min(pos.y, 0.9),
-          w: 0.8,
-          h: 0.05
+          x: typeof bbox.x === 'number' ? Math.max(0, Math.min(1, bbox.x)) : 0.1,
+          y: typeof bbox.y === 'number' ? Math.max(0, Math.min(1, bbox.y)) : 0.1 + index * 0.08,
+          w: typeof bbox.w === 'number' ? Math.max(0.01, Math.min(1, bbox.w)) : 0.8,
+          h: typeof bbox.h === 'number' ? Math.max(0.01, Math.min(1, bbox.h)) : 0.04
         }
       };
     });
 
-    // Map items to recognition items with source block references
+    // Create a map of block IDs for validation
+    const blockIdSet = new Set(ocrBlocks.map((b: any) => b.id));
+
+    // Map items to recognition items with validated source block references
     const items = (extractedData.items || []).map((item: any, index: number) => {
-      // Find related OCR blocks (blocks that contain the amount or item name)
-      const relatedBlockIds = ocrBlocks
-        .filter((block: any) => 
+      // Validate sourceBlockIds - only include IDs that exist in ocrBlocks
+      let sourceBlockIds = Array.isArray(item.sourceBlockIds) 
+        ? item.sourceBlockIds.filter((id: string) => blockIdSet.has(id))
+        : [];
+      
+      // If no valid sourceBlockIds, try to find related blocks
+      if (sourceBlockIds.length === 0) {
+        const relatedBlocks = ocrBlocks.filter((block: any) => 
           block.text.includes(String(item.amount)) || 
           block.text.includes(item.name) ||
           block.type === 'amount' ||
-          block.type === 'item'
-        )
-        .slice(0, 2)
-        .map((block: any) => block.id);
+          block.type === 'item' ||
+          block.type === 'total'
+        ).slice(0, 2);
+        sourceBlockIds = relatedBlocks.map((b: any) => b.id);
+      }
 
       return {
         id: `item_${Date.now()}_${index}`,
-        name: item.name,
+        name: item.name || '未知項目',
         amount: Number(item.amount) || 0,
         category: item.category || 'other',
         confirmed: false,
-        sourceBlockIds: relatedBlockIds.length > 0 ? relatedBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
+        sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
       };
     });
 
@@ -186,7 +209,12 @@ serve(async (req) => {
         data: {
           items,
           ocrBlocks,
-          metadata: extractedData.metadata || {}
+          metadata: {
+            vendor_name: extractedData.metadata?.vendor_name || null,
+            tax_id: extractedData.metadata?.tax_id || null,
+            date: extractedData.metadata?.date || null,
+            total: typeof extractedData.metadata?.total === 'number' ? extractedData.metadata.total : null
+          }
         }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

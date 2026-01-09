@@ -59,7 +59,7 @@ export function ReceiptPreview({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">收據預覽</h3>
         <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export function ReceiptPreview({
 
       <div
         ref={containerRef}
-        className="relative w-full aspect-[3/4] bg-muted rounded-lg overflow-hidden cursor-pointer"
+        className="relative flex-1 min-h-[400px] bg-muted rounded-lg overflow-hidden cursor-pointer"
         onClick={handleContainerClick}
       >
         <img
@@ -118,7 +118,14 @@ export function ReceiptPreview({
                     />
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{block.text}</p>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{block.text}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>類型: {block.type}</span>
+                        <span>·</span>
+                        <span>信心度: {Math.round(block.confidence * 100)}%</span>
+                      </div>
+                    </div>
                   </TooltipContent>
                 </Tooltip>
               );

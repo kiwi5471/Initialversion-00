@@ -25,7 +25,7 @@ export function BatchFileList({ files, activeFileId, onFileSelect }: BatchFileLi
   };
 
   const completedCount = files.filter(f => f.status === 'success').length;
-  const totalItems = files.reduce((sum, f) => sum + f.lineItems.length, 0);
+  const totalItems = files.reduce((sum, f) => sum + (f.lineItems?.length || 0), 0);
 
   return (
     <div className="space-y-3">

@@ -171,11 +171,29 @@ export default function ReceiptRecognition() {
     setHighlightedItemIds([]);
   }, []);
 
-  const handleLocateItem = useCallback((item: LineItem) => {
-    setActiveItemId(item.id);
-    setActiveBlockIds(item.sourceBlockIds);
-    setHighlightedItemIds([]);
-  }, []);
+  const handleItemAdd = useCallback(() => {
+    if (!activeFileId) return;
+    
+    const newItem: LineItem = {
+      id: `line_new_${Date.now()}`,
+      vendor: "",
+      tax_id: null,
+      description: "",
+      amount: 0,
+      unit: "NT",
+      editable: true,
+      confirmed: false,
+      sourceBlockIds: [],
+    };
+
+    setProcessedFiles((prev) =>
+      prev.map((file) =>
+        file.id === activeFileId
+          ? { ...file, lineItems: [newItem, ...file.lineItems] }
+          : file
+      )
+    );
+  }, [activeFileId]);
 
   const handleBlockClick = useCallback((blockId: string) => {
     if (!activeFile) return;
@@ -355,7 +373,7 @@ export default function ReceiptRecognition() {
                   onItemUpdate={handleItemUpdate}
                   onItemDelete={handleItemDelete}
                   onItemConfirm={handleItemConfirm}
-                  onLocateItem={handleLocateItem}
+                  onItemAdd={handleItemAdd}
                 />
               ) : (
                 <div className="text-center py-12 text-muted-foreground flex-1">

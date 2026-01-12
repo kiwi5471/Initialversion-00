@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RecognitionItem, CATEGORIES } from "@/types/recognition";
+import { LineItem, UNITS } from "@/types/recognition";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,19 +9,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Check, Pencil, X, Crosshair } from "lucide-react";
+import { Check, Pencil, X, Crosshair, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 
 interface RecognitionItemListProps {
-  items: RecognitionItem[];
+  items: LineItem[];
   activeItemId: string | null;
   highlightedItemIds: string[];
-  onItemClick: (item: RecognitionItem) => void;
-  onItemUpdate: (id: string, updates: Partial<RecognitionItem>) => void;
+  onItemClick: (item: LineItem) => void;
+  onItemUpdate: (id: string, updates: Partial<LineItem>) => void;
   onItemDelete: (id: string) => void;
   onItemConfirm: (id: string) => void;
-  onLocateItem: (item: RecognitionItem) => void;
+  onLocateItem: (item: LineItem) => void;
 }
 
 export function RecognitionItemList({
@@ -35,14 +36,36 @@ export function RecognitionItemList({
   onLocateItem,
 }: RecognitionItemListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<LineItem>>({});
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("zh-TW", {
-      style: "currency",
-      currency: "TWD",
+  const formatAmount = (amount: number, unit: string) => {
+    const formatted = new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+    return `${formatted} ${unit}`;
+  };
+
+  const startEditing = (item: LineItem) => {
+    setEditingId(item.id);
+    setEditForm({
+      vendor: item.vendor,
+      tax_id: item.tax_id,
+      description: item.description,
+      amount: item.amount,
+      unit: item.unit,
+    });
+  };
+
+  const saveEdit = (id: string) => {
+    onItemUpdate(id, editForm);
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
   };
 
   if (items.length === 0) {
@@ -64,117 +87,183 @@ export function RecognitionItemList({
           return (
             <div
               key={item.id}
-              onClick={() => onItemClick(item)}
+              onClick={() => !isEditing && onItemClick(item)}
               className={cn(
-                "p-4 rounded-lg border transition-all cursor-pointer",
-                "hover:shadow-md",
+                "p-4 rounded-lg border transition-all",
+                !isEditing && "cursor-pointer hover:shadow-md",
                 item.confirmed && "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800",
                 isActive && !item.confirmed && "ring-2 ring-primary border-primary",
                 isHighlighted && !isActive && "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800",
                 !isActive && !isHighlighted && !item.confirmed && "bg-card border-border"
               )}
             >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
+              {isEditing ? (
+                // Edit Mode
+                <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">廠商名稱</label>
+                      <Input
+                        value={editForm.vendor || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, vendor: e.target.value }))}
+                        placeholder="廠商名稱"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">統一編號</label>
+                      <Input
+                        value={editForm.tax_id || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, tax_id: e.target.value || null }))}
+                        placeholder="8碼數字"
+                        maxLength={8}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">明細說明</label>
+                    <Input
+                      value={editForm.description || ""}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="品名或明細說明"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">金額</label>
+                      <Input
+                        type="number"
+                        value={editForm.amount || 0}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">單位</label>
+                      <Select
+                        value={editForm.unit || "元"}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, unit: value }))}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNITS.map((u) => (
+                            <SelectItem key={u.value} value={u.value}>
+                              {u.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={cancelEdit}
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => saveEdit(item.id)}
+                    >
+                      <Save className="h-4 w-4 mr-1" />
+                      儲存
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                // Display Mode
+                <div className="space-y-2">
+                  {/* Header: Vendor + Tax ID */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     {item.confirmed && (
-                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-green-500 text-white">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-green-500 text-white flex-shrink-0">
                         <Check className="w-3 h-3" />
                       </span>
                     )}
-                    <span className="font-medium text-foreground truncate">
-                      {item.name}
+                    <span className="font-medium text-foreground">
+                      {item.vendor || "未知廠商"}
                     </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {isEditing ? (
-                      <Input
-                        type="number"
-                        value={item.amount}
-                        onChange={(e) =>
-                          onItemUpdate(item.id, { amount: Number(e.target.value) })
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-32 h-8 text-sm"
-                      />
-                    ) : (
-                      <span className="text-lg font-semibold text-primary">
-                        {formatAmount(item.amount)}
-                      </span>
+                    {item.tax_id && (
+                      <Badge variant="secondary" className="text-xs font-mono">
+                        {item.tax_id}
+                      </Badge>
                     )}
+                  </div>
 
-                    <Select
-                      value={item.category}
-                      onValueChange={(value) =>
-                        onItemUpdate(item.id, { category: value })
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-28 h-8 text-sm"
-                        onClick={(e) => e.stopPropagation()}
+                  {/* Description */}
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {item.description || "無明細說明"}
+                  </p>
+
+                  {/* Amount + Actions Row */}
+                  <div className="flex items-center justify-between gap-4 pt-1">
+                    <span className="text-lg font-semibold text-primary">
+                      {formatAmount(item.amount, item.unit)}
+                    </span>
+
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        title="定位來源"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onLocateItem(item);
+                        }}
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.value} value={cat.value}>
-                            {cat.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        <Crosshair className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        title="編輯"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditing(item);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-green-600"
+                        title={item.confirmed ? "取消確認" : "確認"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onItemConfirm(item.id);
+                        }}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        title="刪除"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onItemDelete(item.id);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                    title="定位來源"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onLocateItem(item);
-                    }}
-                  >
-                    <Crosshair className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingId(isEditing ? null : item.id);
-                    }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-green-600"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onItemConfirm(item.id);
-                    }}
-                  >
-                    <Check className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onItemDelete(item.id);
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+              )}
             </div>
           );
         })}

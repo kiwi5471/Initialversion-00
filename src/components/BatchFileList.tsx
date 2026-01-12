@@ -25,7 +25,7 @@ export function BatchFileList({ files, activeFileId, onFileSelect }: BatchFileLi
   };
 
   const completedCount = files.filter(f => f.status === 'success').length;
-  const totalItems = files.reduce((sum, f) => sum + f.items.length, 0);
+  const totalItems = files.reduce((sum, f) => sum + f.lineItems.length, 0);
 
   return (
     <div className="space-y-3">
@@ -55,7 +55,7 @@ export function BatchFileList({ files, activeFileId, onFileSelect }: BatchFileLi
                 <p className="text-sm font-medium truncate">{file.fileName}</p>
                 {file.status === 'success' && (
                   <p className="text-xs text-muted-foreground">
-                    {file.items.length} 筆項目
+                    {file.lineItems.length} 筆項目
                   </p>
                 )}
                 {file.status === 'error' && (

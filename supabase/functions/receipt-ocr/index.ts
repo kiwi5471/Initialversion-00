@@ -21,23 +21,28 @@ serve(async (req) => {
     
     console.log(`Processing receipt OCR for file: ${filename}`);
 
-    const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用項目和文字區塊。
+    const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用明細和文字區塊。
 
 重要：你必須為每個文字區塊提供精確的 bounding box 座標 (bbox)，座標值為 0-1 之間的正規化數值（相對於圖片寬高）。
 
 請回傳以下格式的 JSON：
+
 {
-  "items": [
+  "lineItems": [
     {
-      "name": "項目名稱（如：高鐵車票、計程車資、午餐便當等）",
-      "amount": 金額數字,
-      "category": "類別（transportation/meals/accommodation/equipment/misc/other）",
-      "sourceBlockIds": ["對應的 ocrBlock id 陣列，如 b_001, b_002"]
+      "id": "line_001",
+      "vendor": "廠商名稱",
+      "tax_id": "統一編號（8碼，僅數字，無則為 null）",
+      "description": "明細說明或品名",
+      "amount": 數字金額,
+      "unit": "單位（例如：元、份、個，無法判斷時預設為 元）",
+      "editable": true,
+      "sourceBlockIds": ["b_001", "b_002"]
     }
   ],
   "ocrBlocks": [
     {
-      "id": "唯一識別碼（格式：b_001, b_002...）",
+      "id": "b_001",
       "page": 1,
       "text": "識別出的文字內容",
       "type": "文字類型（title/vendor/date/amount/item/tax_id/total/subtotal/tax/other）",
@@ -51,35 +56,37 @@ serve(async (req) => {
     }
   ],
   "metadata": {
-    "vendor_name": "店家或供應商名稱",
-    "tax_id": "統一編號（如有）",
+    "vendor": "廠商名稱",
+    "tax_id": "統一編號（8碼，無則為 null）",
     "date": "日期 YYYY-MM-DD（如有）",
-    "total": 總金額數字
+    "total_amount": 總金額數字
   }
 }
 
-bbox 座標說明：
-- x: 文字區塊左上角的 x 座標 (0-1，相對於圖片寬度)
-- y: 文字區塊左上角的 y 座標 (0-1，相對於圖片高度)
-- w: 文字區塊的寬度 (0-1，相對於圖片寬度)
-- h: 文字區塊的高度 (0-1，相對於圖片高度)
+【lineItems 重要規則】
+1. 每一行代表一筆費用明細，必須獨立成一列
+2. 每一行必須是可編輯草稿（editable 一律為 true）
+3. 不得將多筆費用合併為同一行
+4. 若僅有總金額而無明細，仍需產生一行，description 為「費用合計」
+5. vendor 與 tax_id 可在多行中重複
+6. amount 必須為數字，不得為字串，不得包含幣別符號
+7. sourceBlockIds 必須對應到 ocrBlocks 中的 id
+8. id 格式為 line_001, line_002...
 
-類別對照：
-- transportation: 交通費（計程車、高鐵、火車、公車、捷運、機票等）
-- meals: 餐飲費（餐廳、便當、飲料等）
-- accommodation: 住宿費（飯店、旅館等）
-- equipment: 設備費（辦公用品、文具、電腦設備等）
-- misc: 雜費（其他小額支出）
-- other: 無法分類的項目
+【OCR 區塊規則】
+- 每個 OCR block 必須包含 bbox（0–1 正規化座標）
+- id 必須唯一，格式為 b_001, b_002...
+- bbox 座標說明：
+  - x: 文字區塊左上角的 x 座標 (0-1，相對於圖片寬度)
+  - y: 文字區塊左上角的 y 座標 (0-1，相對於圖片高度)
+  - w: 文字區塊的寬度 (0-1，相對於圖片寬度)
+  - h: 文字區塊的高度 (0-1，相對於圖片高度)
 
 注意事項：
-1. 金額只回傳數字，不含貨幣符號
-2. 如果看到多個費用項目，請分別列出
-3. 每個 ocrBlock 必須有唯一的 id
-4. items 的 sourceBlockIds 必須對應到 ocrBlocks 的 id
-5. confidence 為 0-1 之間的數值，表示辨識信心度
-6. bbox 座標必須準確反映文字在圖片中的位置
-7. 如果無法辨識某項資訊，請省略該欄位`;
+1. 如果看到多個費用項目，請分別列出每一項
+2. confidence 為 0-1 之間的數值，表示辨識信心度
+3. bbox 座標必須準確反映文字在圖片中的位置
+4. 如果無法辨識某項資訊，請省略該欄位或設為 null`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: 'POST',
@@ -99,7 +106,7 @@ bbox 座標說明：
             content: [
               {
                 type: 'text',
-                text: '請分析這張收據圖片，擷取所有費用項目和 OCR 文字區塊，並提供精確的 bounding box 座標：'
+                text: '請分析這張收據圖片，擷取所有費用明細和 OCR 文字區塊，並提供精確的 bounding box 座標：'
               },
               {
                 type: 'image_url',
@@ -154,7 +161,6 @@ bbox 座標說明：
 
     // Validate and format ocrBlocks
     const ocrBlocks = (extractedData.ocrBlocks || []).map((block: any, index: number) => {
-      // Ensure bbox exists and has valid values
       const bbox = block.bbox || {};
       return {
         id: block.id || `b_${String(index + 1).padStart(3, '0')}`,
@@ -174,8 +180,12 @@ bbox 座標說明：
     // Create a map of block IDs for validation
     const blockIdSet = new Set(ocrBlocks.map((b: any) => b.id));
 
-    // Map items to recognition items with validated source block references
-    const items = (extractedData.items || []).map((item: any, index: number) => {
+    // Get vendor and tax_id from metadata for default values
+    const metadataVendor = extractedData.metadata?.vendor || extractedData.metadata?.vendor_name || '';
+    const metadataTaxId = extractedData.metadata?.tax_id || null;
+
+    // Map lineItems with validated source block references
+    const lineItems = (extractedData.lineItems || []).map((item: any, index: number) => {
       // Validate sourceBlockIds - only include IDs that exist in ocrBlocks
       let sourceBlockIds = Array.isArray(item.sourceBlockIds) 
         ? item.sourceBlockIds.filter((id: string) => blockIdSet.has(id))
@@ -185,7 +195,7 @@ bbox 座標說明：
       if (sourceBlockIds.length === 0) {
         const relatedBlocks = ocrBlocks.filter((block: any) => 
           block.text.includes(String(item.amount)) || 
-          block.text.includes(item.name) ||
+          block.text.includes(item.description) ||
           block.type === 'amount' ||
           block.type === 'item' ||
           block.type === 'total'
@@ -193,27 +203,58 @@ bbox 座標說明：
         sourceBlockIds = relatedBlocks.map((b: any) => b.id);
       }
 
+      // Validate tax_id - must be 8 digits only
+      let taxId = item.tax_id || metadataTaxId;
+      if (taxId && !/^\d{8}$/.test(taxId)) {
+        taxId = null;
+      }
+
       return {
-        id: `item_${Date.now()}_${index}`,
-        name: item.name || '未知項目',
-        amount: Number(item.amount) || 0,
-        category: item.category || 'other',
-        confirmed: false,
+        id: item.id || `line_${String(index + 1).padStart(3, '0')}`,
+        vendor: item.vendor || metadataVendor || '未知廠商',
+        tax_id: taxId,
+        description: item.description || '費用明細',
+        amount: typeof item.amount === 'number' ? item.amount : Number(item.amount) || 0,
+        unit: item.unit || '元',
+        editable: true,
         sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
       };
     });
+
+    // If no lineItems but we have a total, create one line item
+    if (lineItems.length === 0 && extractedData.metadata?.total_amount) {
+      const totalBlocks = ocrBlocks.filter((b: any) => b.type === 'total' || b.type === 'amount');
+      lineItems.push({
+        id: 'line_001',
+        vendor: metadataVendor || '未知廠商',
+        tax_id: metadataTaxId,
+        description: '費用合計',
+        amount: extractedData.metadata.total_amount,
+        unit: '元',
+        editable: true,
+        sourceBlockIds: totalBlocks.length > 0 ? [totalBlocks[0].id] : []
+      });
+    }
+
+    // Validate metadata tax_id
+    let finalTaxId = extractedData.metadata?.tax_id || null;
+    if (finalTaxId && !/^\d{8}$/.test(finalTaxId)) {
+      finalTaxId = null;
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
         data: {
-          items,
+          lineItems,
           ocrBlocks,
           metadata: {
-            vendor_name: extractedData.metadata?.vendor_name || null,
-            tax_id: extractedData.metadata?.tax_id || null,
+            vendor: metadataVendor || null,
+            tax_id: finalTaxId,
             date: extractedData.metadata?.date || null,
-            total: typeof extractedData.metadata?.total === 'number' ? extractedData.metadata.total : null
+            total_amount: typeof extractedData.metadata?.total_amount === 'number' 
+              ? extractedData.metadata.total_amount 
+              : (typeof extractedData.metadata?.total === 'number' ? extractedData.metadata.total : null)
           }
         }
       }),

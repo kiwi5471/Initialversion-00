@@ -1,4 +1,4 @@
-import { RecognitionItem, OCRBlock, OCRMetadata } from './recognition';
+import { LineItem, OCRBlock, OCRMetadata } from './recognition';
 
 export interface UploadedFileItem {
   id: string;
@@ -13,7 +13,7 @@ export interface FileProcessingResult {
   fileName: string;
   imageUrl: string;
   status: 'pending' | 'processing' | 'success' | 'error';
-  items: RecognitionItem[];
+  lineItems: LineItem[];
   ocrBlocks: OCRBlock[];
   metadata?: OCRMetadata;
   error?: string;
@@ -24,7 +24,7 @@ export interface ExportData {
   files: {
     fileName: string;
     imageUrl: string;
-    items: RecognitionItem[];
+    lineItems: LineItem[];
     ocrBlocks: OCRBlock[];
     metadata?: OCRMetadata;
   }[];

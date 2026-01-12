@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { RecognitionItem, OCRBlock } from "@/types/recognition";
+import { LineItem, OCRBlock } from "@/types/recognition";
 import { FileProcessingResult, UploadedFileItem, ExportData } from "@/types/batch";
 import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { UploadFileList } from "@/components/UploadFileList";
@@ -54,10 +54,16 @@ export default function ReceiptRecognition() {
       if (error) throw error;
       if (!data.success) throw new Error(data.error || '辨識失敗');
 
+      // Add confirmed: false to all lineItems
+      const lineItems = (data.data.lineItems || []).map((item: any) => ({
+        ...item,
+        confirmed: false,
+      }));
+
       return {
         ...fileResult,
         status: 'success',
-        items: data.data.items || [],
+        lineItems,
         ocrBlocks: data.data.ocrBlocks || [],
         metadata: data.data.metadata || {},
       };
@@ -95,7 +101,7 @@ export default function ReceiptRecognition() {
       fileName: uf.fileName,
       imageUrl: uf.imageUrl,
       status: 'pending' as const,
-      items: [],
+      lineItems: [],
       ocrBlocks: [],
     }));
 
@@ -121,7 +127,7 @@ export default function ReceiptRecognition() {
     setIsProcessing(false);
 
     const successCount = results.filter(f => f.status === 'success').length;
-    const totalItems = results.reduce((sum, f) => sum + f.items.length, 0);
+    const totalItems = results.reduce((sum, f) => sum + f.lineItems.length, 0);
 
     toast({
       title: "批次辨識完成",
@@ -159,13 +165,13 @@ export default function ReceiptRecognition() {
     setHighlightedItemIds([]);
   }, []);
 
-  const handleItemClick = useCallback((item: RecognitionItem) => {
+  const handleItemClick = useCallback((item: LineItem) => {
     setActiveItemId(item.id);
     setActiveBlockIds(item.sourceBlockIds);
     setHighlightedItemIds([]);
   }, []);
 
-  const handleLocateItem = useCallback((item: RecognitionItem) => {
+  const handleLocateItem = useCallback((item: LineItem) => {
     setActiveItemId(item.id);
     setActiveBlockIds(item.sourceBlockIds);
     setHighlightedItemIds([]);
@@ -173,7 +179,7 @@ export default function ReceiptRecognition() {
 
   const handleBlockClick = useCallback((blockId: string) => {
     if (!activeFile) return;
-    const relatedItems = activeFile.items.filter((item) =>
+    const relatedItems = activeFile.lineItems.filter((item) =>
       item.sourceBlockIds.includes(blockId)
     );
     const relatedItemIds = relatedItems.map((item) => item.id);
@@ -190,11 +196,11 @@ export default function ReceiptRecognition() {
   }, []);
 
   const handleItemUpdate = useCallback(
-    (id: string, updates: Partial<RecognitionItem>) => {
+    (id: string, updates: Partial<LineItem>) => {
       setProcessedFiles((prev) =>
         prev.map((file) => ({
           ...file,
-          items: file.items.map((item) =>
+          lineItems: file.lineItems.map((item) =>
             item.id === id ? { ...item, ...updates } : item
           ),
         }))
@@ -207,7 +213,7 @@ export default function ReceiptRecognition() {
     setProcessedFiles((prev) =>
       prev.map((file) => ({
         ...file,
-        items: file.items.filter((item) => item.id !== id),
+        lineItems: file.lineItems.filter((item) => item.id !== id),
       }))
     );
     if (activeItemId === id) {
@@ -220,14 +226,14 @@ export default function ReceiptRecognition() {
     setProcessedFiles((prev) =>
       prev.map((file) => ({
         ...file,
-        items: file.items.map((item) =>
+        lineItems: file.lineItems.map((item) =>
           item.id === id ? { ...item, confirmed: !item.confirmed } : item
         ),
       }))
     );
   }, []);
 
-  const totalAmount = activeFile?.items.reduce((sum, item) => sum + item.amount, 0) || 0;
+  const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount, 0) || 0;
 
   // Export data
   const exportData: ExportData = useMemo(() => ({
@@ -237,7 +243,7 @@ export default function ReceiptRecognition() {
       .map(f => ({
         fileName: f.fileName,
         imageUrl: f.imageUrl,
-        items: f.items,
+        lineItems: f.lineItems,
         ocrBlocks: f.ocrBlocks,
         metadata: f.metadata,
       })),
@@ -322,10 +328,10 @@ export default function ReceiptRecognition() {
             <Card className="p-4 shadow-lg flex-1 overflow-hidden flex flex-col">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-foreground">
-                  辨識項目
+                  費用明細
                 </h2>
                 <span className="text-sm text-muted-foreground">
-                  {activeFile?.items.length || 0} 筆
+                  {activeFile?.lineItems.length || 0} 筆
                 </span>
               </div>
 
@@ -342,7 +348,7 @@ export default function ReceiptRecognition() {
                 </div>
               ) : activeFile ? (
                 <RecognitionItemList
-                  items={activeFile.items}
+                  items={activeFile.lineItems}
                   activeItemId={activeItemId}
                   highlightedItemIds={highlightedItemIds}
                   onItemClick={handleItemClick}

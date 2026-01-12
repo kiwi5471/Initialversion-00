@@ -1,8 +1,11 @@
-export interface RecognitionItem {
+export interface LineItem {
   id: string;
-  name: string;
+  vendor: string;
+  tax_id: string | null;
+  description: string;
   amount: number;
-  category: string;
+  unit: string;
+  editable: boolean;
   confirmed: boolean;
   sourceBlockIds: string[];
 }
@@ -22,17 +25,17 @@ export interface OCRBlock {
 }
 
 export interface OCRMetadata {
-  vendor_name?: string;
+  vendor?: string;
   tax_id?: string;
   date?: string;
-  total?: number;
+  total_amount?: number;
 }
 
-export const CATEGORIES = [
-  { value: "transportation", label: "交通費" },
-  { value: "meals", label: "餐飲費" },
-  { value: "accommodation", label: "住宿費" },
-  { value: "equipment", label: "設備費" },
-  { value: "misc", label: "雜費" },
-  { value: "other", label: "其他" },
+export const UNITS = [
+  { value: "元", label: "元" },
+  { value: "份", label: "份" },
+  { value: "個", label: "個" },
+  { value: "張", label: "張" },
+  { value: "次", label: "次" },
+  { value: "趟", label: "趟" },
 ] as const;

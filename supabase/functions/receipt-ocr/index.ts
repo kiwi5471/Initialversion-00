@@ -23,7 +23,10 @@ serve(async (req) => {
 
     const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用明細和文字區塊。
 
-重要：你必須為每個文字區塊提供精確的 bounding box 座標 (bbox)，座標值為 0-1 之間的正規化數值（相對於圖片寬高）。
+重要限制：
+- ocrBlocks 最多只輸出 30 個最重要的區塊（優先保留金額、日期、廠商、統編相關區塊）
+- sourceBlockIds 每個 lineItem 最多只關聯 5 個最相關的 block id
+- 輸出必須是完整有效的 JSON
 
 請回傳以下格式的 JSON：
 
@@ -35,7 +38,7 @@ serve(async (req) => {
       "tax_id": "統一編號（8碼，僅數字，無則為 null）",
       "description": "明細說明或品名",
       "amount": 數字金額,
-      "unit": "單位（例如：元、份、個，無法判斷時預設為 元）",
+      "unit": "元",
       "editable": true,
       "sourceBlockIds": ["b_001", "b_002"]
     }
@@ -45,48 +48,30 @@ serve(async (req) => {
       "id": "b_001",
       "page": 1,
       "text": "識別出的文字內容",
-      "type": "文字類型（title/vendor/date/amount/item/tax_id/total/subtotal/tax/other）",
+      "type": "amount",
       "confidence": 0.95,
-      "bbox": {
-        "x": 0.1,
-        "y": 0.2,
-        "w": 0.3,
-        "h": 0.05
-      }
+      "bbox": { "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05 }
     }
   ],
   "metadata": {
     "vendor": "廠商名稱",
     "tax_id": "統一編號（8碼，無則為 null）",
-    "date": "日期 YYYY-MM-DD（如有）",
+    "date": "YYYY-MM-DD",
     "total_amount": 總金額數字
   }
 }
 
-【lineItems 重要規則】
-1. 每一行代表一筆費用明細，必須獨立成一列
-2. 每一行必須是可編輯草稿（editable 一律為 true）
-3. 不得將多筆費用合併為同一行
-4. 若僅有總金額而無明細，仍需產生一行，description 為「費用合計」
-5. vendor 與 tax_id 可在多行中重複
-6. amount 必須為數字，不得為字串，不得包含幣別符號
-7. sourceBlockIds 必須對應到 ocrBlocks 中的 id
-8. id 格式為 line_001, line_002...
+【lineItems 規則】
+1. 每筆費用明細獨立成一列，不合併
+2. editable 一律為 true
+3. 若僅有總金額無明細，description 為「費用合計」
+4. amount 必須為數字
+5. sourceBlockIds 最多 5 個，對應 ocrBlocks 的 id
 
-【OCR 區塊規則】
-- 每個 OCR block 必須包含 bbox（0–1 正規化座標）
-- id 必須唯一，格式為 b_001, b_002...
-- bbox 座標說明：
-  - x: 文字區塊左上角的 x 座標 (0-1，相對於圖片寬度)
-  - y: 文字區塊左上角的 y 座標 (0-1，相對於圖片高度)
-  - w: 文字區塊的寬度 (0-1，相對於圖片寬度)
-  - h: 文字區塊的高度 (0-1，相對於圖片高度)
-
-注意事項：
-1. 如果看到多個費用項目，請分別列出每一項
-2. confidence 為 0-1 之間的數值，表示辨識信心度
-3. bbox 座標必須準確反映文字在圖片中的位置
-4. 如果無法辨識某項資訊，請省略該欄位或設為 null`;
+【ocrBlocks 規則】
+- 最多 30 個區塊，優先保留重要資訊
+- type: title/vendor/date/amount/item/tax_id/total/subtotal/tax/other
+- bbox 為 0-1 正規化座標`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: 'POST',
@@ -151,12 +136,47 @@ serve(async (req) => {
     // Parse the JSON response from AI
     let extractedData;
     try {
-      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/\{[\s\S]*\}/);
-      const jsonString = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-      extractedData = JSON.parse(jsonString);
+      // Try to extract JSON from markdown code blocks or raw JSON
+      let jsonString = content;
+      
+      // Remove markdown code blocks if present
+      const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        jsonString = codeBlockMatch[1].trim();
+      } else {
+        // Try to find JSON object directly
+        const jsonObjectMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) {
+          jsonString = jsonObjectMatch[0];
+        }
+      }
+      
+      // Try to fix truncated JSON by closing open brackets
+      let fixedJson = jsonString;
+      const openBraces = (fixedJson.match(/\{/g) || []).length;
+      const closeBraces = (fixedJson.match(/\}/g) || []).length;
+      const openBrackets = (fixedJson.match(/\[/g) || []).length;
+      const closeBrackets = (fixedJson.match(/\]/g) || []).length;
+      
+      // Add missing closing brackets
+      for (let i = 0; i < openBrackets - closeBrackets; i++) {
+        fixedJson += ']';
+      }
+      for (let i = 0; i < openBraces - closeBraces; i++) {
+        fixedJson += '}';
+      }
+      
+      extractedData = JSON.parse(fixedJson);
     } catch (parseError) {
       console.error('Error parsing AI response:', parseError);
-      throw new Error('Failed to parse AI response as JSON');
+      console.error('Raw content:', content.substring(0, 500));
+      
+      // Return minimal valid structure if parsing fails
+      extractedData = {
+        lineItems: [],
+        ocrBlocks: [],
+        metadata: {}
+      };
     }
 
     // Validate and format ocrBlocks

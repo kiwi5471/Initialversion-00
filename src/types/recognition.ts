@@ -31,11 +31,8 @@ export interface OCRMetadata {
   total_amount?: number;
 }
 
-export const UNITS = [
-  { value: "元", label: "元" },
-  { value: "份", label: "份" },
-  { value: "個", label: "個" },
-  { value: "張", label: "張" },
-  { value: "次", label: "次" },
-  { value: "趟", label: "趟" },
+export const CURRENCIES = [
+  { value: "NT", label: "NT" },
+  { value: "JP", label: "JP" },
+  { value: "USD", label: "USD" },
 ] as const;

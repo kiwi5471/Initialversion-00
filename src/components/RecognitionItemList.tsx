@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LineItem, UNITS } from "@/types/recognition";
+import { LineItem, CURRENCIES } from "@/types/recognition";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,11 +9,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Check, Pencil, X, Crosshair, Save } from "lucide-react";
+import { Check, Pencil, X, Save, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-
 interface RecognitionItemListProps {
   items: LineItem[];
   activeItemId: string | null;
@@ -22,7 +21,7 @@ interface RecognitionItemListProps {
   onItemUpdate: (id: string, updates: Partial<LineItem>) => void;
   onItemDelete: (id: string) => void;
   onItemConfirm: (id: string) => void;
-  onLocateItem: (item: LineItem) => void;
+  onItemAdd: () => void;
 }
 
 export function RecognitionItemList({
@@ -33,7 +32,7 @@ export function RecognitionItemList({
   onItemUpdate,
   onItemDelete,
   onItemConfirm,
-  onLocateItem,
+  onItemAdd,
 }: RecognitionItemListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
@@ -70,8 +69,12 @@ export function RecognitionItemList({
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        尚無辨識結果
+      <div className="text-center py-8">
+        <p className="text-muted-foreground mb-4">尚無辨識結果</p>
+        <Button variant="outline" size="sm" onClick={onItemAdd}>
+          <Plus className="h-4 w-4 mr-1" />
+          新增明細
+        </Button>
       </div>
     );
   }
@@ -79,6 +82,16 @@ export function RecognitionItemList({
   return (
     <ScrollArea className="h-[calc(100vh-480px)] min-h-[200px]">
       <div className="space-y-3 pr-4">
+        {/* Add New Button */}
+        <Button
+          variant="outline"
+          className="w-full border-dashed"
+          onClick={onItemAdd}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          新增明細
+        </Button>
+
         {items.map((item) => {
           const isActive = activeItemId === item.id;
           const isHighlighted = highlightedItemIds.includes(item.id);
@@ -143,18 +156,18 @@ export function RecognitionItemList({
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">單位</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">幣值</label>
                       <Select
-                        value={editForm.unit || "元"}
+                        value={editForm.unit || "NT"}
                         onValueChange={(value) => setEditForm(prev => ({ ...prev, unit: value }))}
                       >
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {UNITS.map((u) => (
-                            <SelectItem key={u.value} value={u.value}>
-                              {u.label}
+                          {CURRENCIES.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>
+                              {c.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -216,18 +229,6 @@ export function RecognitionItemList({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-primary"
-                        title="定位來源"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLocateItem(item);
-                        }}
-                      >
-                        <Crosshair className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
                         title="編輯"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -236,18 +237,20 @@ export function RecognitionItemList({
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-green-600"
-                        title={item.confirmed ? "取消確認" : "確認"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onItemConfirm(item.id);
-                        }}
-                      >
-                        <Check className="h-4 w-4" />
-                      </Button>
+                      {!item.confirmed && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-green-600"
+                          title="確認"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onItemConfirm(item.id);
+                          }}
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

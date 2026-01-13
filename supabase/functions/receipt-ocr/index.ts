@@ -34,11 +34,13 @@ serve(async (req) => {
   "lineItems": [
     {
       "id": "line_001",
+      "category": "0",
       "vendor": "廠商名稱",
       "tax_id": "統一編號（8碼，僅數字，無則為 null）",
-      "description": "明細說明或品名",
-      "amount": 數字金額,
-      "unit": "元",
+      "date": "YYYY-MM-DD",
+      "invoice_number": "發票號碼（如：AB-12345678）",
+      "amount_with_tax": 含稅金額數字,
+      "input_tax": 進項稅額數字,
       "editable": true,
       "sourceBlockIds": ["b_001", "b_002"]
     }
@@ -61,16 +63,35 @@ serve(async (req) => {
   }
 }
 
-【lineItems 規則】
-1. 每筆費用明細獨立成一列，不合併
-2. editable 一律為 true
-3. 若僅有總金額無明細，description 為「費用合計」
-4. amount 必須為數字
-5. sourceBlockIds 最多 5 個，對應 ocrBlocks 的 id
+【lineItems 欄位說明】
+1. category: 憑證種類代碼 (0-9)
+   - 0: 電子發票
+   - 1: 三聯式手開發票
+   - 2: 三聯式收銀機發票
+   - 3: 二聯式收銀機發票(含機票,車票,水電費收據)
+   - 4: 進貨折讓證明單
+   - 5: 海關進出口貨物稅費繳納證
+   - 6: 三聯式零稅率發票
+   - 7: 進貨零稅率折讓證明單
+   - 8: 海關進口代徵退還溢繳營業稅
+   - 9: 境外電商及不得扣抵之電子發票
+2. vendor: 廠商名稱
+3. tax_id: 統一編號（8碼數字，無則為 null）
+4. date: 發票日期（YYYY-MM-DD 格式）
+5. invoice_number: 發票號碼
+6. amount_with_tax: 含稅金額
+7. input_tax: 進項稅額（通常為含稅金額的 5%，即 含稅金額 - 未稅金額）
+8. editable: 一律為 true
+9. sourceBlockIds: 最多 5 個，對應 ocrBlocks 的 id
+
+【判斷 category 規則】
+- 若發票號碼開頭為英文字母+8位數字，通常為電子發票(0)或三聯式發票(1,2)
+- 若為機票、車票、水電費收據等，為二聯式(3)
+- 請根據圖片內容判斷最可能的類型，預設為 0
 
 【ocrBlocks 規則】
 - 最多 30 個區塊，優先保留重要資訊
-- type: title/vendor/date/amount/item/tax_id/total/subtotal/tax/other
+- type: title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 - bbox 為 0-1 正規化座標`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -214,10 +235,10 @@ serve(async (req) => {
       // If no valid sourceBlockIds, try to find related blocks
       if (sourceBlockIds.length === 0) {
         const relatedBlocks = ocrBlocks.filter((block: any) => 
-          block.text.includes(String(item.amount)) || 
-          block.text.includes(item.description) ||
+          block.text.includes(String(item.amount_with_tax)) || 
+          block.text.includes(item.invoice_number) ||
           block.type === 'amount' ||
-          block.type === 'item' ||
+          block.type === 'invoice_number' ||
           block.type === 'total'
         ).slice(0, 2);
         sourceBlockIds = relatedBlocks.map((b: any) => b.id);
@@ -229,13 +250,25 @@ serve(async (req) => {
         taxId = null;
       }
 
+      // Parse amount_with_tax
+      const amountWithTax = typeof item.amount_with_tax === 'number' 
+        ? item.amount_with_tax 
+        : (typeof item.amount === 'number' ? item.amount : Number(item.amount_with_tax || item.amount) || 0);
+      
+      // Parse input_tax (default to 5% of amount if not provided)
+      const inputTax = typeof item.input_tax === 'number' 
+        ? item.input_tax 
+        : Math.round(amountWithTax - amountWithTax / 1.05);
+
       return {
         id: item.id || `line_${String(index + 1).padStart(3, '0')}`,
+        category: item.category || '0',
         vendor: item.vendor || metadataVendor || '未知廠商',
         tax_id: taxId,
-        description: item.description || '費用明細',
-        amount: typeof item.amount === 'number' ? item.amount : Number(item.amount) || 0,
-        unit: item.unit || '元',
+        date: item.date || extractedData.metadata?.date || null,
+        invoice_number: item.invoice_number || null,
+        amount_with_tax: amountWithTax,
+        input_tax: inputTax,
         editable: true,
         sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
       };
@@ -244,13 +277,16 @@ serve(async (req) => {
     // If no lineItems but we have a total, create one line item
     if (lineItems.length === 0 && extractedData.metadata?.total_amount) {
       const totalBlocks = ocrBlocks.filter((b: any) => b.type === 'total' || b.type === 'amount');
+      const totalAmount = extractedData.metadata.total_amount;
       lineItems.push({
         id: 'line_001',
+        category: '0',
         vendor: metadataVendor || '未知廠商',
         tax_id: metadataTaxId,
-        description: '費用合計',
-        amount: extractedData.metadata.total_amount,
-        unit: '元',
+        date: extractedData.metadata?.date || null,
+        invoice_number: null,
+        amount_with_tax: totalAmount,
+        input_tax: Math.round(totalAmount - totalAmount / 1.05),
         editable: true,
         sourceBlockIds: totalBlocks.length > 0 ? [totalBlocks[0].id] : []
       });

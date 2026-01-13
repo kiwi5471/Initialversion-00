@@ -29,6 +29,7 @@ export default function ReceiptRecognition() {
   const [highlightedItemIds, setHighlightedItemIds] = useState<string[]>([]);
   const [activeBlockIds, setActiveBlockIds] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const activeFile = useMemo(
     () => processedFiles.find(f => f.id === activeFileId) || null,
@@ -341,6 +342,7 @@ export default function ReceiptRecognition() {
                 files={processedFiles}
                 activeFileId={activeFileId}
                 onFileSelect={handleFileSelect}
+                disabled={isEditing}
               />
             </Card>
 
@@ -367,7 +369,7 @@ export default function ReceiptRecognition() {
                   {activeFile.error || '辨識失敗'}
                 </div>
               ) : activeFile ? (
-                <RecognitionItemList
+              <RecognitionItemList
                   items={activeFile.lineItems}
                   activeItemId={activeItemId}
                   highlightedItemIds={highlightedItemIds}
@@ -376,6 +378,7 @@ export default function ReceiptRecognition() {
                   onItemDelete={handleItemDelete}
                   onItemConfirm={handleItemConfirm}
                   onItemAdd={handleItemAdd}
+                  onEditingChange={setIsEditing}
                 />
               ) : (
                 <div className="text-center py-12 text-muted-foreground flex-1">

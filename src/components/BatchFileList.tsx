@@ -8,9 +8,10 @@ interface BatchFileListProps {
   files: FileProcessingResult[];
   activeFileId: string | null;
   onFileSelect: (fileId: string) => void;
+  disabled?: boolean;
 }
 
-export function BatchFileList({ files, activeFileId, onFileSelect }: BatchFileListProps) {
+export function BatchFileList({ files, activeFileId, onFileSelect, disabled = false }: BatchFileListProps) {
   const getStatusIcon = (status: FileProcessingResult['status']) => {
     switch (status) {
       case 'pending':
@@ -41,12 +42,14 @@ export function BatchFileList({ files, activeFileId, onFileSelect }: BatchFileLi
           {files.map((file) => (
             <button
               key={file.id}
-              onClick={() => onFileSelect(file.id)}
+              onClick={() => !disabled && onFileSelect(file.id)}
+              disabled={disabled}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors",
+                disabled && "opacity-50 cursor-not-allowed",
                 activeFileId === file.id
                   ? "bg-primary/10 border border-primary/30"
-                  : "hover:bg-muted/50"
+                  : !disabled && "hover:bg-muted/50"
               )}
             >
               {getStatusIcon(file.status)}

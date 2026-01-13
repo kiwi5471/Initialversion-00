@@ -23,6 +23,7 @@ interface RecognitionItemListProps {
   onItemDelete: (id: string) => void;
   onItemConfirm: (id: string) => void;
   onItemAdd: () => void;
+  onEditingChange?: (isEditing: boolean) => void;
 }
 
 export function RecognitionItemList({
@@ -34,10 +35,16 @@ export function RecognitionItemList({
   onItemDelete,
   onItemConfirm,
   onItemAdd,
+  onEditingChange,
 }: RecognitionItemListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
 
+  // Notify parent when editing state changes
+  const updateEditingId = (id: string | null) => {
+    setEditingId(id);
+    onEditingChange?.(id !== null);
+  };
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
@@ -60,7 +67,7 @@ export function RecognitionItemList({
   };
 
   const startEditing = (item: LineItem) => {
-    setEditingId(item.id);
+    updateEditingId(item.id);
     setEditForm({
       category: item.category,
       vendor: item.vendor,
@@ -74,12 +81,12 @@ export function RecognitionItemList({
 
   const saveEdit = (id: string) => {
     onItemUpdate(id, editForm);
-    setEditingId(null);
+    updateEditingId(null);
     setEditForm({});
   };
 
   const cancelEdit = () => {
-    setEditingId(null);
+    updateEditingId(null);
     setEditForm({});
   };
 

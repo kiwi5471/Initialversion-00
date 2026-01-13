@@ -176,11 +176,13 @@ export default function ReceiptRecognition() {
     
     const newItem: LineItem = {
       id: `line_new_${Date.now()}`,
+      category: "0",
       vendor: "",
       tax_id: null,
-      description: "",
-      amount: 0,
-      unit: "NT",
+      date: null,
+      invoice_number: null,
+      amount_with_tax: 0,
+      input_tax: 0,
       editable: true,
       confirmed: false,
       sourceBlockIds: [],
@@ -251,7 +253,7 @@ export default function ReceiptRecognition() {
     );
   }, []);
 
-  const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount, 0) || 0;
+  const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount_with_tax, 0) || 0;
 
   // Export data
   const exportData: ExportData = useMemo(() => ({

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LineItem, CURRENCIES } from "@/types/recognition";
+import { LineItem, DOCUMENT_CATEGORIES } from "@/types/recognition";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -13,6 +13,7 @@ import { Check, Pencil, X, Save, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+
 interface RecognitionItemListProps {
   items: LineItem[];
   activeItemId: string | null;
@@ -37,22 +38,37 @@ export function RecognitionItemList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
 
-  const formatAmount = (amount: number, unit: string) => {
-    const formatted = new Intl.NumberFormat("zh-TW", {
+  const formatAmount = (amount: number) => {
+    return new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
-    return `${formatted} ${unit}`;
+  };
+
+  const getCategoryLabel = (value: string) => {
+    const cat = DOCUMENT_CATEGORIES.find(c => c.value === value);
+    return cat ? cat.label : value;
+  };
+
+  const getCategoryShortLabel = (value: string) => {
+    const cat = DOCUMENT_CATEGORIES.find(c => c.value === value);
+    if (!cat) return value;
+    // Get short version (e.g., "0.電子發票" -> "電子發票")
+    const label = cat.label;
+    const dotIndex = label.indexOf('.');
+    return dotIndex >= 0 ? label.substring(dotIndex + 1) : label;
   };
 
   const startEditing = (item: LineItem) => {
     setEditingId(item.id);
     setEditForm({
+      category: item.category,
       vendor: item.vendor,
       tax_id: item.tax_id,
-      description: item.description,
-      amount: item.amount,
-      unit: item.unit,
+      date: item.date,
+      invoice_number: item.invoice_number,
+      amount_with_tax: item.amount_with_tax,
+      input_tax: item.input_tax,
     });
   };
 
@@ -113,9 +129,30 @@ export function RecognitionItemList({
               {isEditing ? (
                 // Edit Mode
                 <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                  {/* Row 1: Category */}
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">類別</label>
+                    <Select
+                      value={editForm.category || "0"}
+                      onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value }))}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DOCUMENT_CATEGORIES.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Row 2: Vendor + Tax ID */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">廠商名稱</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">廠商</label>
                       <Input
                         value={editForm.vendor || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, vendor: e.target.value }))}
@@ -124,7 +161,7 @@ export function RecognitionItemList({
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">統一編號</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">統編</label>
                       <Input
                         value={editForm.tax_id || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, tax_id: e.target.value || null }))}
@@ -135,43 +172,47 @@ export function RecognitionItemList({
                     </div>
                   </div>
                   
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">明細說明</label>
-                    <Input
-                      value={editForm.description || ""}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="品名或明細說明"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  
+                  {/* Row 3: Date + Invoice Number */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">金額</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">年月日</label>
                       <Input
-                        type="number"
-                        value={editForm.amount || 0}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                        type="date"
+                        value={editForm.date || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value || null }))}
                         className="h-8 text-sm"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">幣值</label>
-                      <Select
-                        value={editForm.unit || "NT"}
-                        onValueChange={(value) => setEditForm(prev => ({ ...prev, unit: value }))}
-                      >
-                        <SelectTrigger className="h-8 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CURRENCIES.map((c) => (
-                            <SelectItem key={c.value} value={c.value}>
-                              {c.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-xs text-muted-foreground mb-1 block">發票號碼</label>
+                      <Input
+                        value={editForm.invoice_number || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, invoice_number: e.target.value || null }))}
+                        placeholder="發票號碼"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Row 4: Amounts */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">含稅金額</label>
+                      <Input
+                        type="number"
+                        value={editForm.amount_with_tax || 0}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, amount_with_tax: Number(e.target.value) }))}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">進項稅額</label>
+                      <Input
+                        type="number"
+                        value={editForm.input_tax || 0}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, input_tax: Number(e.target.value) }))}
+                        className="h-8 text-sm"
+                      />
                     </div>
                   </div>
 
@@ -196,13 +237,20 @@ export function RecognitionItemList({
               ) : (
                 // Display Mode
                 <div className="space-y-2">
-                  {/* Header: Vendor + Tax ID */}
+                  {/* Header: Confirmed + Category */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {item.confirmed && (
                       <span className="flex items-center justify-center w-5 h-5 rounded-full bg-green-500 text-white flex-shrink-0">
                         <Check className="w-3 h-3" />
                       </span>
                     )}
+                    <Badge variant="outline" className="text-xs">
+                      {getCategoryShortLabel(item.category)}
+                    </Badge>
+                  </div>
+
+                  {/* Vendor + Tax ID */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-foreground">
                       {item.vendor || "未知廠商"}
                     </span>
@@ -213,16 +261,24 @@ export function RecognitionItemList({
                     )}
                   </div>
 
-                  {/* Description */}
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {item.description || "無明細說明"}
-                  </p>
+                  {/* Date + Invoice Number */}
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    {item.date && <span>{item.date}</span>}
+                    {item.invoice_number && <span className="font-mono">{item.invoice_number}</span>}
+                  </div>
 
-                  {/* Amount + Actions Row */}
+                  {/* Amounts + Actions Row */}
                   <div className="flex items-center justify-between gap-4 pt-1">
-                    <span className="text-lg font-semibold text-primary">
-                      {formatAmount(item.amount, item.unit)}
-                    </span>
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">含稅:</span>
+                        <span className="ml-1 font-semibold text-primary">{formatAmount(item.amount_with_tax)}</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">稅額:</span>
+                        <span className="ml-1 font-medium">{formatAmount(item.input_tax)}</span>
+                      </div>
+                    </div>
 
                     <div className="flex items-center gap-1">
                       <Button

@@ -218,41 +218,56 @@ export default function ReceiptRecognition() {
 
   const handleItemUpdate = useCallback(
     (id: string, updates: Partial<LineItem>) => {
+      if (!activeFileId) return;
       setProcessedFiles((prev) =>
-        prev.map((file) => ({
-          ...file,
-          lineItems: file.lineItems.map((item) =>
-            item.id === id ? { ...item, ...updates } : item
-          ),
-        }))
+        prev.map((file) => 
+          file.id === activeFileId
+            ? {
+                ...file,
+                lineItems: file.lineItems.map((item) =>
+                  item.id === id ? { ...item, ...updates } : item
+                ),
+              }
+            : file
+        )
       );
     },
-    []
+    [activeFileId]
   );
 
   const handleItemDelete = useCallback((id: string) => {
+    if (!activeFileId) return;
     setProcessedFiles((prev) =>
-      prev.map((file) => ({
-        ...file,
-        lineItems: file.lineItems.filter((item) => item.id !== id),
-      }))
+      prev.map((file) =>
+        file.id === activeFileId
+          ? {
+              ...file,
+              lineItems: file.lineItems.filter((item) => item.id !== id),
+            }
+          : file
+      )
     );
     if (activeItemId === id) {
       setActiveItemId(null);
       setActiveBlockIds([]);
     }
-  }, [activeItemId]);
+  }, [activeFileId, activeItemId]);
 
   const handleItemConfirm = useCallback((id: string) => {
+    if (!activeFileId) return;
     setProcessedFiles((prev) =>
-      prev.map((file) => ({
-        ...file,
-        lineItems: file.lineItems.map((item) =>
-          item.id === id ? { ...item, confirmed: !item.confirmed } : item
-        ),
-      }))
+      prev.map((file) =>
+        file.id === activeFileId
+          ? {
+              ...file,
+              lineItems: file.lineItems.map((item) =>
+                item.id === id ? { ...item, confirmed: !item.confirmed } : item
+              ),
+            }
+          : file
+      )
     );
-  }, []);
+  }, [activeFileId]);
 
   const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount_with_tax, 0) || 0;
 

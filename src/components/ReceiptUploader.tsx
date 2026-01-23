@@ -15,15 +15,22 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
 
   const processFiles = useCallback(
     async (fileList: FileList) => {
+      if (fileList.length === 0) return;
+      
       setIsConverting(true);
       const uploadedFiles: UploadedFileItem[] = [];
+
+      console.log('[Upload] Processing', fileList.length, 'files');
 
       try {
         for (let i = 0; i < fileList.length; i++) {
           const file = fileList[i];
+          console.log('[Upload] Processing file:', file.name, 'type:', file.type);
           
           if (isPDF(file)) {
+            console.log('[Upload] Detected PDF, converting...');
             const pages = await convertPDFToImages(file);
+            console.log('[Upload] PDF converted, pages:', pages.length);
             pages.forEach((page) => {
               uploadedFiles.push({
                 id: `${file.name}-page-${page.pageNumber}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -34,6 +41,7 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
               });
             });
           } else if (isImage(file)) {
+            console.log('[Upload] Detected image');
             const url = URL.createObjectURL(file);
             uploadedFiles.push({
               id: `${file.name}-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
@@ -44,9 +52,13 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
           }
         }
 
+        console.log('[Upload] Total files processed:', uploadedFiles.length);
+        
         if (uploadedFiles.length > 0) {
           onFilesAdd(uploadedFiles);
         }
+      } catch (error) {
+        console.error('[Upload] Error processing files:', error);
       } finally {
         setIsConverting(false);
       }

@@ -160,13 +160,14 @@ export default function ReceiptRecognition() {
   }, [uploadedFiles, processedFiles]);
 
   const handleFileSelect = useCallback((fileId: string) => {
-    // Reset editing state when switching files
-    setIsEditing(false);
+    // Prevent switching files while editing
+    if (isEditing) return;
+    
     setActiveFileId(fileId);
     setActiveItemId(null);
     setActiveBlockIds([]);
     setHighlightedItemIds([]);
-  }, []);
+  }, [isEditing]);
 
   const handleItemClick = useCallback((item: LineItem) => {
     setActiveItemId(item.id);
@@ -359,8 +360,13 @@ export default function ReceiptRecognition() {
                 files={processedFiles}
                 activeFileId={activeFileId}
                 onFileSelect={handleFileSelect}
-                disabled={false}
+                disabled={isEditing}
               />
+              {isEditing && (
+                <p className="text-xs text-amber-600 mt-2 text-center">
+                  ⚠️ 編輯中，請先儲存或取消後再切換檔案
+                </p>
+              )}
             </Card>
 
             {/* Bottom: Recognition Results */}

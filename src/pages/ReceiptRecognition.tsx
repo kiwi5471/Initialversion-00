@@ -45,37 +45,81 @@ export default function ReceiptRecognition() {
     });
   };
 
-  const processFile = async (fileResult: FileProcessingResult, file: File): Promise<FileProcessingResult> => {
-    try {
-      const imageData = await fileToBase64(file);
-      const { data, error } = await supabase.functions.invoke('receipt-ocr', {
-        body: { imageData, filename: fileResult.fileName }
-      });
+  // Delay helper for rate limiting
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error || '辨識失敗');
+  // Process file with retry logic for rate limiting
+  const processFileWithRetry = async (
+    fileResult: FileProcessingResult, 
+    file: File, 
+    maxRetries: number = 3
+  ): Promise<FileProcessingResult> => {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const imageData = await fileToBase64(file);
+        const { data, error } = await supabase.functions.invoke('receipt-ocr', {
+          body: { imageData, filename: fileResult.fileName }
+        });
 
-      // Add confirmed: false to all lineItems
-      const lineItems = (data.data.lineItems || []).map((item: any) => ({
-        ...item,
-        confirmed: false,
-      }));
+        if (error) {
+          // Check if it's a rate limit error
+          if (error.message?.includes('429') || error.message?.includes('請求過於頻繁')) {
+            const waitTime = Math.pow(2, attempt) * 2000; // Exponential backoff: 2s, 4s, 8s
+            console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+            await delay(waitTime);
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
+        
+        if (!data.success) {
+          if (data.error?.includes('429') || data.error?.includes('請求過於頻繁')) {
+            const waitTime = Math.pow(2, attempt) * 2000;
+            console.log(`Rate limited, waiting ${waitTime}ms before retry ${attempt + 1}/${maxRetries}`);
+            await delay(waitTime);
+            lastError = new Error(data.error);
+            continue;
+          }
+          throw new Error(data.error || '辨識失敗');
+        }
 
-      return {
-        ...fileResult,
-        status: 'success',
-        lineItems,
-        ocrBlocks: data.data.ocrBlocks || [],
-        metadata: data.data.metadata || {},
-      };
-    } catch (error) {
-      console.error('OCR error:', error);
-      return {
-        ...fileResult,
-        status: 'error',
-        error: error instanceof Error ? error.message : '辨識失敗',
-      };
+        // Add confirmed: false to all lineItems
+        const lineItems = (data.data.lineItems || []).map((item: any) => ({
+          ...item,
+          confirmed: false,
+        }));
+
+        return {
+          ...fileResult,
+          status: 'success',
+          lineItems,
+          ocrBlocks: data.data.ocrBlocks || [],
+          metadata: data.data.metadata || {},
+        };
+      } catch (error) {
+        console.error(`OCR error (attempt ${attempt + 1}):`, error);
+        lastError = error instanceof Error ? error : new Error('辨識失敗');
+        
+        // If it's a rate limit error, retry
+        if (lastError.message?.includes('429') || lastError.message?.includes('請求過於頻繁')) {
+          const waitTime = Math.pow(2, attempt) * 2000;
+          await delay(waitTime);
+          continue;
+        }
+        
+        // For other errors, don't retry
+        break;
+      }
     }
+    
+    return {
+      ...fileResult,
+      status: 'error',
+      error: lastError?.message || '辨識失敗',
+    };
   };
 
   // Step 1 handlers
@@ -111,16 +155,22 @@ export default function ReceiptRecognition() {
     setStep('result');
     setIsProcessing(true);
 
-    // Process files one by one
+    // Process files one by one with delay between requests
     const results = [...initialResults];
+    const REQUEST_DELAY_MS = 1500; // 1.5 seconds between requests to avoid rate limiting
     
     for (let i = 0; i < uploadedFiles.length; i++) {
       // Update status to processing
       results[i] = { ...results[i], status: 'processing' };
       setProcessedFiles([...results]);
 
-      // Process the file
-      const result = await processFile(results[i], uploadedFiles[i].file);
+      // Add delay between requests (except for the first one)
+      if (i > 0) {
+        await delay(REQUEST_DELAY_MS);
+      }
+
+      // Process the file with retry logic
+      const result = await processFileWithRetry(results[i], uploadedFiles[i].file);
       results[i] = result;
       setProcessedFiles([...results]);
     }

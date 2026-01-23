@@ -300,20 +300,23 @@ export function RecognitionItemList({
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      {!item.confirmed && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-green-600"
-                          title="確認"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onItemConfirm(item.id);
-                          }}
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "h-8 w-8",
+                          item.confirmed 
+                            ? "text-green-600 hover:text-muted-foreground" 
+                            : "text-muted-foreground hover:text-green-600"
+                        )}
+                        title={item.confirmed ? "取消確認" : "確認"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onItemConfirm(item.id);
+                        }}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

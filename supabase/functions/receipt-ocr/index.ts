@@ -23,6 +23,12 @@ serve(async (req) => {
 
     const systemPrompt = `你是一個專業的財務票據 OCR 辨識系統。請仔細分析圖片中的收據或票據，並擷取所有可見的費用明細和文字區塊。
 
+【重要】賣方與買方辨識規則：
+- vendor（廠商）：必須是「賣方」/「銷售人」/「營業人」的名稱，即開立發票的商家
+- tax_id（統編）：必須是「賣方」/「銷售人」/「營業人」的統一編號
+- 發票上通常會標示「賣方」或「營業人」欄位，這才是我們要擷取的對象
+- 「買方」/「買受人」欄位是客戶資訊，請忽略不要擷取
+
 重要限制：
 - ocrBlocks 最多只輸出 30 個最重要的區塊（優先保留金額、日期、廠商、統編相關區塊）
 - sourceBlockIds 每個 lineItem 最多只關聯 5 個最相關的 block id
@@ -35,8 +41,8 @@ serve(async (req) => {
     {
       "id": "line_001",
       "category": "0",
-      "vendor": "廠商名稱",
-      "tax_id": "統一編號（8碼，僅數字，無則為 null）",
+      "vendor": "賣方廠商名稱（開立發票的營業人）",
+      "tax_id": "賣方統一編號（8碼，僅數字，無則為 null）",
       "date": "YYYY-MM-DD",
       "invoice_number": "發票號碼（如：AB-12345678）",
       "amount_with_tax": 含稅金額數字,
@@ -56,8 +62,8 @@ serve(async (req) => {
     }
   ],
   "metadata": {
-    "vendor": "廠商名稱",
-    "tax_id": "統一編號（8碼，無則為 null）",
+    "vendor": "賣方廠商名稱",
+    "tax_id": "賣方統一編號（8碼，無則為 null）",
     "date": "YYYY-MM-DD",
     "total_amount": 總金額數字
   }
@@ -75,8 +81,8 @@ serve(async (req) => {
    - 7: 進貨零稅率折讓證明單
    - 8: 海關進口代徵退還溢繳營業稅
    - 9: 境外電商及不得扣抵之電子發票
-2. vendor: 廠商名稱
-3. tax_id: 統一編號（8碼數字，無則為 null）
+2. vendor: 【賣方】廠商名稱（開立發票的營業人，非買受人）
+3. tax_id: 【賣方】統一編號（8碼數字，無則為 null）
 4. date: 發票日期（YYYY-MM-DD 格式）
 5. invoice_number: 發票號碼
 6. amount_with_tax: 含稅金額

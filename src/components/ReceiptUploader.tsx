@@ -16,17 +16,17 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFiles = useCallback(
-    async (fileList: FileList) => {
-      if (fileList.length === 0) return;
+    async (files: File[]) => {
+      if (files.length === 0) return;
       
       setIsConverting(true);
       const uploadedFiles: UploadedFileItem[] = [];
 
-      console.log('[Upload] Processing', fileList.length, 'files');
+      console.log('[Upload] Processing', files.length, 'files');
 
       try {
-        for (let i = 0; i < fileList.length; i++) {
-          const file = fileList[i];
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
           console.log('[Upload] Processing file:', file.name, 'type:', file.type);
           
           if (isPDF(file)) {
@@ -73,7 +73,8 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
       e.preventDefault();
       setIsDragOver(false);
       if (!disabled && e.dataTransfer.files.length > 0) {
-        processFiles(e.dataTransfer.files);
+        // Copy FileList immediately; some browsers may mutate FileList after input reset.
+        processFiles(Array.from(e.dataTransfer.files));
       }
     },
     [processFiles, disabled]
@@ -92,9 +93,12 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
-        console.log('[Upload] Files selected:', e.target.files.length);
-        processFiles(e.target.files);
+        // IMPORTANT: Copy FileList BEFORE clearing input value, otherwise only the first file
+        // may be processed in some environments.
+        const files = Array.from(e.target.files);
+        console.log('[Upload] Files selected:', files.length, files.map(f => f.name));
         e.target.value = '';
+        processFiles(files);
       }
     },
     [processFiles]

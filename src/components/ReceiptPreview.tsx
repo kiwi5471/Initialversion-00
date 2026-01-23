@@ -26,7 +26,7 @@ export function ReceiptPreview({
   onEmptyClick,
   totalAmount,
 }: ReceiptPreviewProps) {
-  const [showOCRBoxes, setShowOCRBoxes] = useState(true);
+  const [showOCRBoxes, setShowOCRBoxes] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 

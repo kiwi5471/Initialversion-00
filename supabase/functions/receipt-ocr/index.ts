@@ -6,6 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -100,56 +102,90 @@ serve(async (req) => {
 - type: title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 - bbox 為 0-1 正規化座標`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: '請分析這張收據圖片，擷取所有費用明細和 OCR 文字區塊，並提供精確的 bounding box 座標：'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageData
-                }
+    const requestBody = {
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '請分析這張收據圖片，擷取所有費用明細和 OCR 文字區塊，並提供精確的 bounding box 座標：'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageData
               }
-            ]
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 4096,
-      }),
-    });
+            }
+          ]
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 4096,
+    };
 
-    if (!response.ok) {
-      if (response.status === 429) {
+    // Retry OpenAI calls on 429 to reduce client-visible failures.
+    const MAX_ATTEMPTS = 4; // 1 initial + 3 retries
+    let response: Response | null = null;
+    let lastErrorText = '';
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) break;
+
+      // If rate-limited, wait and retry.
+      if (response.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+        lastErrorText = await response.text();
+        const retryAfterHeader = response.headers.get('retry-after');
+        const retryAfterMs = retryAfterHeader && !Number.isNaN(Number(retryAfterHeader))
+          ? Math.max(1, Number(retryAfterHeader)) * 1000
+          : (1500 * Math.pow(2, attempt)); // 1.5s, 3s, 6s, ...
+
+        console.warn(
+          `OpenAI rate limited (429). attempt ${attempt + 1}/${MAX_ATTEMPTS}. waiting ${retryAfterMs}ms.`,
+        );
+        await sleep(retryAfterMs);
+        continue;
+      }
+
+      // Non-429 errors: keep body for diagnostics and stop retrying.
+      lastErrorText = await response.text();
+      break;
+    }
+
+    if (!response || !response.ok) {
+      const status = response?.status ?? 500;
+
+      // IMPORTANT: Return 200 so the web client doesn't treat this as a hard network failure.
+      // We surface the actual code in JSON as `code`.
+      if (status === 429) {
         return new Response(
-          JSON.stringify({ success: false, error: '請求過於頻繁，請稍後再試' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ success: false, code: 429, error: '請求過於頻繁，請稍後再試' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      if (response.status === 402) {
+      if (status === 402) {
         return new Response(
-          JSON.stringify({ success: false, error: '額度不足，請增加使用額度' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ success: false, code: 402, error: '額度不足，請增加使用額度' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
+
+      console.error('OpenAI error:', status, lastErrorText);
+      throw new Error(`OpenAI error: ${status}`);
     }
 
     const data = await response.json();

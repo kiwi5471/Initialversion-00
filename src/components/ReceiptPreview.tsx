@@ -1,17 +1,18 @@
-import { useRef, useState, useEffect } from "react";
-import { OCRBlock } from "@/types/recognition";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { useRef } from "react";
+// OCR 文字框功能暫時停用以節省流量
+// import { OCRBlock } from "@/types/recognition";
+// import { Switch } from "@/components/ui/switch";
+// import { Label } from "@/components/ui/label";
+// import {
+//   Tooltip,
+//   TooltipContent,
+//   TooltipTrigger,
+// } from "@/components/ui/tooltip";
+// import { cn } from "@/lib/utils";
 
 interface ReceiptPreviewProps {
   imageUrl: string;
-  ocrBlocks: OCRBlock[];
+  ocrBlocks: unknown[]; // 暫時改為 unknown[] 以保持介面相容
   activeBlockIds: string[];
   onBlockClick: (blockId: string) => void;
   onEmptyClick: () => void;
@@ -20,28 +21,29 @@ interface ReceiptPreviewProps {
 
 export function ReceiptPreview({
   imageUrl,
-  ocrBlocks,
-  activeBlockIds,
-  onBlockClick,
+  // ocrBlocks, // 暫時不使用
+  // activeBlockIds, // 暫時不使用
+  // onBlockClick, // 暫時不使用
   onEmptyClick,
   totalAmount,
 }: ReceiptPreviewProps) {
-  const [showOCRBoxes, setShowOCRBoxes] = useState(false);
+  // OCR 文字框相關狀態暫時停用
+  // const [showOCRBoxes, setShowOCRBoxes] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  // const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setDimensions({ width: rect.width, height: rect.height });
-      }
-    };
-
-    updateDimensions();
-    window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
-  }, []);
+  // useEffect(() => {
+  //   const updateDimensions = () => {
+  //     if (containerRef.current) {
+  //       const rect = containerRef.current.getBoundingClientRect();
+  //       setDimensions({ width: rect.width, height: rect.height });
+  //     }
+  //   };
+  //
+  //   updateDimensions();
+  //   window.addEventListener("resize", updateDimensions);
+  //   return () => window.removeEventListener("resize", updateDimensions);
+  // }, []);
 
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat("zh-TW", {
@@ -62,6 +64,7 @@ export function ReceiptPreview({
     <div className="space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">收據預覽</h3>
+        {/* OCR 文字框開關暫時停用
         <div className="flex items-center gap-2">
           <Switch
             id="show-ocr"
@@ -72,6 +75,7 @@ export function ReceiptPreview({
             顯示 OCR 文字框
           </Label>
         </div>
+        */}
       </div>
 
       <div
@@ -85,6 +89,7 @@ export function ReceiptPreview({
           className="w-full h-full object-contain"
         />
 
+        {/* OCR 文字框覆蓋層暫時停用以節省流量
         {showOCRBoxes && (
           <div className="absolute inset-0 pointer-events-none">
             {ocrBlocks.map((block) => {
@@ -132,6 +137,7 @@ export function ReceiptPreview({
             })}
           </div>
         )}
+        */}
       </div>
 
       <div className="p-4 bg-primary/10 rounded-lg">

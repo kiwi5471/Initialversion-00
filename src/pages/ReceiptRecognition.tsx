@@ -160,6 +160,8 @@ export default function ReceiptRecognition() {
   }, [uploadedFiles, processedFiles]);
 
   const handleFileSelect = useCallback((fileId: string) => {
+    // Reset editing state when switching files
+    setIsEditing(false);
     setActiveFileId(fileId);
     setActiveItemId(null);
     setActiveBlockIds([]);
@@ -357,7 +359,7 @@ export default function ReceiptRecognition() {
                 files={processedFiles}
                 activeFileId={activeFileId}
                 onFileSelect={handleFileSelect}
-                disabled={isEditing}
+                disabled={false}
               />
             </Card>
 

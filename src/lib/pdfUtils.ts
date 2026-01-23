@@ -18,39 +18,62 @@ export function isImage(file: File): boolean {
 }
 
 export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  console.log('[PDF] Starting conversion for:', file.name);
   const pages: PDFPage[] = [];
 
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const scale = 2; // Higher scale for better OCR quality
-    const viewport = page.getViewport({ scale });
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    console.log('[PDF] File loaded, size:', arrayBuffer.byteLength);
 
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) continue;
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    console.log('[PDF] Loading task created');
 
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    const pdf = await loadingTask.promise;
+    console.log('[PDF] Document loaded, pages:', pdf.numPages);
 
-    await page.render({
-      canvasContext: context,
-      viewport: viewport,
-    }).promise;
+    for (let i = 1; i <= pdf.numPages; i++) {
+      console.log('[PDF] Processing page', i);
+      const page = await pdf.getPage(i);
+      const scale = 2; // Higher scale for better OCR quality
+      const viewport = page.getViewport({ scale });
 
-    const imageUrl = canvas.toDataURL('image/png');
-    
-    // Convert data URL to File for consistent handling
-    const response = await fetch(imageUrl);
-    const blob = await response.blob();
-    const pageFile = new File([blob], `${file.name}_page_${i}.png`, { type: 'image/png' });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) {
+        console.error('[PDF] Could not get canvas context for page', i);
+        continue;
+      }
 
-    pages.push({
-      pageNumber: i,
-      imageUrl,
-      file: pageFile,
-    });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
+
+      console.log('[PDF] Page', i, 'rendered');
+
+      const imageUrl = canvas.toDataURL('image/png');
+      
+      // Convert data URL to File for consistent handling
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const pageFile = new File([blob], `${file.name}_page_${i}.png`, { type: 'image/png' });
+
+      pages.push({
+        pageNumber: i,
+        imageUrl,
+        file: pageFile,
+      });
+
+      console.log('[PDF] Page', i, 'completed');
+    }
+
+    console.log('[PDF] Conversion complete, total pages:', pages.length);
+  } catch (error) {
+    console.error('[PDF] Conversion error:', error);
+    throw error;
   }
 
   return pages;

@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
-import { Loader2, FileText, Image as ImageIcon, Plus } from "lucide-react";
+import { useCallback, useState, useRef } from "react";
+import { Loader2, FileText, Image as ImageIcon, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isPDF, isImage, convertPDFToImages } from "@/lib/pdfUtils";
 import { UploadedFileItem } from "@/types/batch";
+import { Button } from "@/components/ui/button";
 
 interface ReceiptUploaderProps {
   onFilesAdd: (files: UploadedFileItem[]) => void;
@@ -12,6 +13,7 @@ interface ReceiptUploaderProps {
 export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFiles = useCallback(
     async (fileList: FileList) => {
@@ -90,12 +92,17 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
+        console.log('[Upload] Files selected:', e.target.files.length);
         processFiles(e.target.files);
         e.target.value = '';
       }
     },
     [processFiles]
   );
+
+  const handleButtonClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   const showLoading = isConverting;
 
@@ -113,15 +120,16 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
       )}
     >
       <input
+        ref={fileInputRef}
         type="file"
         accept="image/*,.pdf,application/pdf"
         multiple
         onChange={handleInputChange}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        className="hidden"
         disabled={showLoading || disabled}
       />
 
-      <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-4">
         {showLoading ? (
           <>
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
@@ -139,14 +147,23 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
                 <FileText className="w-7 h-7 text-primary" />
               </div>
             </div>
-            <div>
+            <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">
                 拖放收據圖片或 PDF 至此處
               </p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground">
                 支援多選檔案（JPG、PNG、WEBP、PDF）
               </p>
             </div>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={handleButtonClick}
+              className="gap-2"
+            >
+              <Upload className="w-4 h-4" />
+              選擇多個檔案
+            </Button>
           </>
         )}
       </div>

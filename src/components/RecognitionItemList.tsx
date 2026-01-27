@@ -115,19 +115,20 @@ export function RecognitionItemList({
         新增明細
       </Button>
 
-      <ScrollArea className="flex-1">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[80px]">類別</TableHead>
-              <TableHead className="min-w-[100px]">廠商</TableHead>
-              <TableHead className="w-[90px]">統編</TableHead>
-              <TableHead className="w-[100px]">日期</TableHead>
-              <TableHead className="w-[100px]">發票號碼</TableHead>
-              <TableHead className="w-[90px] text-right">含稅金額</TableHead>
-              <TableHead className="w-[80px] text-right">稅額</TableHead>
-              <TableHead className="w-[100px] text-center">操作</TableHead>
-            </TableRow>
+      <div className="flex-1 overflow-auto border rounded-md">
+        <div className="min-w-[800px]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[80px]">類別</TableHead>
+                <TableHead className="min-w-[100px]">廠商</TableHead>
+                <TableHead className="w-[90px]">統編</TableHead>
+                <TableHead className="w-[100px]">日期</TableHead>
+                <TableHead className="w-[100px]">發票號碼</TableHead>
+                <TableHead className="w-[90px] text-right">含稅金額</TableHead>
+                <TableHead className="w-[80px] text-right">稅額</TableHead>
+                <TableHead className="w-[100px] text-center">操作</TableHead>
+              </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((item) => {
@@ -310,9 +311,10 @@ export function RecognitionItemList({
                 </TableRow>
               );
             })}
-          </TableBody>
-        </Table>
-      </ScrollArea>
+            </TableBody>
+          </Table>
+        </div>
+      </div>
     </div>
   );
 }

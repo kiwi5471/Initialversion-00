@@ -9,10 +9,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Check, Pencil, X, Save, Plus } from "lucide-react";
+import { Check, Pencil, X, Save, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface RecognitionItemListProps {
   items: LineItem[];
@@ -40,11 +47,11 @@ export function RecognitionItemList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
 
-  // Notify parent when editing state changes
   const updateEditingId = (id: string | null) => {
     setEditingId(id);
     onEditingChange?.(id !== null);
   };
+
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
@@ -52,15 +59,9 @@ export function RecognitionItemList({
     }).format(amount);
   };
 
-  const getCategoryLabel = (value: string) => {
-    const cat = DOCUMENT_CATEGORIES.find(c => c.value === value);
-    return cat ? cat.label : value;
-  };
-
   const getCategoryShortLabel = (value: string) => {
     const cat = DOCUMENT_CATEGORIES.find(c => c.value === value);
     if (!cat) return value;
-    // Get short version (e.g., "0.電子發票" -> "電子發票")
     const label = cat.label;
     const dotIndex = label.indexOf('.');
     return dotIndex >= 0 ? label.substring(dotIndex + 1) : label;
@@ -103,208 +104,171 @@ export function RecognitionItemList({
   }
 
   return (
-    <ScrollArea className="h-[calc(100vh-480px)] min-h-[200px]">
-      <div className="space-y-3 pr-4">
-        {/* Add New Button */}
-        <Button
-          variant="outline"
-          className="w-full border-dashed"
-          onClick={onItemAdd}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          新增明細
-        </Button>
+    <div className="flex flex-col h-[calc(100vh-480px)] min-h-[200px]">
+      {/* Add New Button */}
+      <Button
+        variant="outline"
+        className="w-full border-dashed mb-3 flex-shrink-0"
+        onClick={onItemAdd}
+      >
+        <Plus className="h-4 w-4 mr-2" />
+        新增明細
+      </Button>
 
-        {items.map((item) => {
-          const isActive = activeItemId === item.id;
-          const isHighlighted = highlightedItemIds.includes(item.id);
-          const isEditing = editingId === item.id;
+      <ScrollArea className="flex-1">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[80px]">類別</TableHead>
+              <TableHead className="min-w-[100px]">廠商</TableHead>
+              <TableHead className="w-[90px]">統編</TableHead>
+              <TableHead className="w-[100px]">日期</TableHead>
+              <TableHead className="w-[100px]">發票號碼</TableHead>
+              <TableHead className="w-[90px] text-right">含稅金額</TableHead>
+              <TableHead className="w-[80px] text-right">稅額</TableHead>
+              <TableHead className="w-[100px] text-center">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((item) => {
+              const isActive = activeItemId === item.id;
+              const isHighlighted = highlightedItemIds.includes(item.id);
+              const isEditing = editingId === item.id;
 
-          return (
-            <div
-              key={item.id}
-              onClick={() => !isEditing && onItemClick(item)}
-              className={cn(
-                "p-4 rounded-lg border transition-all",
-                !isEditing && "cursor-pointer hover:shadow-md",
-                item.confirmed && "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800",
-                isActive && !item.confirmed && "ring-2 ring-primary border-primary",
-                isHighlighted && !isActive && "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800",
-                !isActive && !isHighlighted && !item.confirmed && "bg-card border-border"
-              )}
-            >
-              {isEditing ? (
-                // Edit Mode
-                <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-                  {/* Row 1: Category */}
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">類別</label>
-                    <Select
-                      value={editForm.category || "0"}
-                      onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value }))}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DOCUMENT_CATEGORIES.map((c) => (
-                          <SelectItem key={c.value} value={c.value}>
-                            {c.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Row 2: Vendor + Tax ID */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">廠商</label>
+              if (isEditing) {
+                return (
+                  <TableRow key={item.id} className="bg-muted/50">
+                    <TableCell>
+                      <Select
+                        value={editForm.category || "0"}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DOCUMENT_CATEGORIES.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         value={editForm.vendor || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, vendor: e.target.value }))}
-                        placeholder="廠商名稱"
-                        className="h-8 text-sm"
+                        placeholder="廠商"
+                        className="h-8 text-xs"
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">統編</label>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         value={editForm.tax_id || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, tax_id: e.target.value || null }))}
-                        placeholder="8碼數字"
+                        placeholder="統編"
                         maxLength={8}
-                        className="h-8 text-sm"
+                        className="h-8 text-xs"
                       />
-                    </div>
-                  </div>
-                  
-                  {/* Row 3: Date + Invoice Number */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">年月日</label>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         type="date"
                         value={editForm.date || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value || null }))}
-                        className="h-8 text-sm"
+                        className="h-8 text-xs"
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">發票號碼</label>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         value={editForm.invoice_number || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, invoice_number: e.target.value || null }))}
                         placeholder="發票號碼"
-                        className="h-8 text-sm"
+                        className="h-8 text-xs"
                       />
-                    </div>
-                  </div>
-                  
-                  {/* Row 4: Amounts */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">含稅金額</label>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         type="number"
                         value={editForm.amount_with_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, amount_with_tax: Number(e.target.value) }))}
-                        className="h-8 text-sm"
+                        className="h-8 text-xs text-right"
                       />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">進項稅額</label>
+                    </TableCell>
+                    <TableCell>
                       <Input
                         type="number"
                         value={editForm.input_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, input_tax: Number(e.target.value) }))}
-                        className="h-8 text-sm"
+                        className="h-8 text-xs text-right"
                       />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={cancelEdit}
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      取消
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => saveEdit(item.id)}
-                    >
-                      <Save className="h-4 w-4 mr-1" />
-                      儲存
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                // Display Mode
-                <div className="space-y-2">
-                  {/* Header: Confirmed + Category */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {item.confirmed && (
-                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-green-500 text-white flex-shrink-0">
-                        <Check className="w-3 h-3" />
-                      </span>
-                    )}
-                    <Badge variant="outline" className="text-xs">
-                      {getCategoryShortLabel(item.category)}
-                    </Badge>
-                  </div>
-
-                  {/* Vendor + Tax ID */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-foreground">
-                      {item.vendor || "未知廠商"}
-                    </span>
-                    {item.tax_id && (
-                      <Badge variant="secondary" className="text-xs font-mono">
-                        {item.tax_id}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Date + Invoice Number */}
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    {item.date && <span>{item.date}</span>}
-                    {item.invoice_number && <span className="font-mono">{item.invoice_number}</span>}
-                  </div>
-
-                  {/* Amounts + Actions Row */}
-                  <div className="flex items-center justify-between gap-4 pt-1">
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm">
-                        <span className="text-muted-foreground">含稅:</span>
-                        <span className="ml-1 font-semibold text-primary">{formatAmount(item.amount_with_tax)}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-primary hover:text-primary"
+                          title="儲存"
+                          onClick={() => saveEdit(item.id)}
+                        >
+                          <Save className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          title="取消"
+                          onClick={cancelEdit}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                      <div className="text-sm">
-                        <span className="text-muted-foreground">稅額:</span>
-                        <span className="ml-1 font-medium">{formatAmount(item.input_tax)}</span>
-                      </div>
-                    </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }
 
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
-                        title="編輯"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditing(item);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+              return (
+                <TableRow
+                  key={item.id}
+                  onClick={() => onItemClick(item)}
+                  className={cn(
+                    "cursor-pointer transition-colors",
+                    item.confirmed && "bg-green-50 dark:bg-green-950/20",
+                    isActive && !item.confirmed && "bg-primary/10",
+                    isHighlighted && !isActive && "bg-blue-50 dark:bg-blue-950/20"
+                  )}
+                >
+                  <TableCell className="text-xs py-2">
+                    {getCategoryShortLabel(item.category)}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 font-medium">
+                    {item.vendor || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 font-mono">
+                    {item.tax_id || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2">
+                    {item.date || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 font-mono">
+                    {item.invoice_number || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 text-right font-semibold text-primary">
+                    {formatAmount(item.amount_with_tax)}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 text-right">
+                    {formatAmount(item.input_tax)}
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <div className="flex items-center justify-center gap-0.5">
                       <Button
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          "h-8 w-8",
+                          "h-7 w-7",
                           item.confirmed 
                             ? "text-green-600 hover:text-muted-foreground" 
                             : "text-muted-foreground hover:text-green-600"
@@ -315,28 +279,40 @@ export function RecognitionItemList({
                           onItemConfirm(item.id);
                         }}
                       >
-                        <Check className="h-4 w-4" />
+                        <Check className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        className="h-7 w-7 text-muted-foreground hover:text-primary"
+                        title="編輯"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditing(item);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         title="刪除"
                         onClick={(e) => {
                           e.stopPropagation();
                           onItemDelete(item.id);
                         }}
                       >
-                        <X className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </ScrollArea>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+    </div>
   );
 }

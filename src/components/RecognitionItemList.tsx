@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Check, Pencil, X, Save, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -20,6 +19,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface RecognitionItemListProps {
   items: LineItem[];
@@ -46,6 +55,7 @@ export function RecognitionItemList({
 }: RecognitionItemListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
+  const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
 
   const updateEditingId = (id: string | null) => {
     setEditingId(id);
@@ -89,6 +99,14 @@ export function RecognitionItemList({
   const cancelEdit = () => {
     updateEditingId(null);
     setEditForm({});
+  };
+
+  const handleDeleteClick = (item: LineItem) => {
+    if (item.amount_with_tax !== 0 || item.input_tax !== 0) {
+      setDeleteWarningItem(item);
+    } else {
+      onItemDelete(item.id);
+    }
   };
 
   if (items.length === 0) {
@@ -301,7 +319,7 @@ export function RecognitionItemList({
                         title="刪除"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onItemDelete(item.id);
+                          handleDeleteClick(item);
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -315,6 +333,29 @@ export function RecognitionItemList({
           </Table>
         </div>
       </div>
+
+      {/* Delete Warning Dialog */}
+      <AlertDialog open={!!deleteWarningItem} onOpenChange={(open) => !open && setDeleteWarningItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>無法刪除</AlertDialogTitle>
+            <AlertDialogDescription>
+              此明細的含稅金額或稅額欄位有值，請先清空這些欄位後再刪除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (deleteWarningItem) {
+                startEditing(deleteWarningItem);
+                setDeleteWarningItem(null);
+              }
+            }}>
+              前往編輯
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

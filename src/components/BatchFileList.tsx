@@ -57,8 +57,11 @@ export function BatchFileList({ files, activeFileId, onFileSelect, disabled = fa
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{file.fileName}</p>
                 {file.status === 'success' && (
-                  <p className="text-xs text-muted-foreground">
-                    {file.lineItems.length} 筆項目
+                  <p className="text-xs text-muted-foreground flex items-center gap-2">
+                    <span>{file.lineItems.length} 筆項目</span>
+                    <span className="text-green-600">
+                      ✓ {file.lineItems.filter(item => item.confirmed).length}/{file.lineItems.length}
+                    </span>
                   </p>
                 )}
                 {file.status === 'error' && (

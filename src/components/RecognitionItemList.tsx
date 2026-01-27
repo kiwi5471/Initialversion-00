@@ -116,18 +116,18 @@ export function RecognitionItemList({
       </Button>
 
       <div className="flex-1 overflow-auto border rounded-md">
-        <div className="min-w-[800px]">
+        <div className="min-w-[1200px]">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[80px]">類別</TableHead>
-                <TableHead className="min-w-[100px]">廠商</TableHead>
-                <TableHead className="w-[90px]">統編</TableHead>
-                <TableHead className="w-[100px]">日期</TableHead>
-                <TableHead className="w-[100px]">發票號碼</TableHead>
-                <TableHead className="w-[90px] text-right">含稅金額</TableHead>
-                <TableHead className="w-[80px] text-right">稅額</TableHead>
-                <TableHead className="w-[100px] text-center">操作</TableHead>
+                <TableHead className="w-[120px]">類別</TableHead>
+                <TableHead className="min-w-[200px]">廠商</TableHead>
+                <TableHead className="w-[160px]">統編</TableHead>
+                <TableHead className="w-[160px]">日期</TableHead>
+                <TableHead className="w-[180px]">發票號碼</TableHead>
+                <TableHead className="w-[140px] text-right">含稅金額</TableHead>
+                <TableHead className="w-[120px] text-right">稅額</TableHead>
+                <TableHead className="w-[120px] text-center">操作</TableHead>
               </TableRow>
           </TableHeader>
           <TableBody>
@@ -144,7 +144,7 @@ export function RecognitionItemList({
                         value={editForm.category || "0"}
                         onValueChange={(value) => setEditForm(prev => ({ ...prev, category: value }))}
                       >
-                        <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectTrigger className="h-10 text-sm w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -161,7 +161,7 @@ export function RecognitionItemList({
                         value={editForm.vendor || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, vendor: e.target.value }))}
                         placeholder="廠商"
-                        className="h-8 text-xs"
+                        className="h-10 text-sm"
                       />
                     </TableCell>
                     <TableCell>
@@ -170,7 +170,7 @@ export function RecognitionItemList({
                         onChange={(e) => setEditForm(prev => ({ ...prev, tax_id: e.target.value || null }))}
                         placeholder="統編"
                         maxLength={8}
-                        className="h-8 text-xs"
+                        className="h-10 text-sm"
                       />
                     </TableCell>
                     <TableCell>
@@ -178,7 +178,7 @@ export function RecognitionItemList({
                         type="date"
                         value={editForm.date || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value || null }))}
-                        className="h-8 text-xs"
+                        className="h-10 text-sm"
                       />
                     </TableCell>
                     <TableCell>
@@ -186,7 +186,7 @@ export function RecognitionItemList({
                         value={editForm.invoice_number || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, invoice_number: e.target.value || null }))}
                         placeholder="發票號碼"
-                        className="h-8 text-xs"
+                        className="h-10 text-sm"
                       />
                     </TableCell>
                     <TableCell>
@@ -194,7 +194,7 @@ export function RecognitionItemList({
                         type="number"
                         value={editForm.amount_with_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, amount_with_tax: Number(e.target.value) }))}
-                        className="h-8 text-xs text-right"
+                        className="h-10 text-sm text-right"
                       />
                     </TableCell>
                     <TableCell>
@@ -202,7 +202,7 @@ export function RecognitionItemList({
                         type="number"
                         value={editForm.input_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, input_tax: Number(e.target.value) }))}
-                        className="h-8 text-xs text-right"
+                        className="h-10 text-sm text-right"
                       />
                     </TableCell>
                     <TableCell>

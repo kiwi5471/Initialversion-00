@@ -325,18 +325,22 @@ export default function ReceiptRecognition() {
   const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount_with_tax, 0) || 0;
 
   // Export data
-  const exportData: ExportData = useMemo(() => ({
-    exportedAt: new Date().toISOString(),
-    files: processedFiles
-      .filter(f => f.status === 'success')
-      .map(f => ({
+  const exportData: ExportData = useMemo(() => {
+    const successFiles = processedFiles.filter(f => f.status === 'success');
+    const allLineItems = successFiles.flatMap(f => f.lineItems);
+    return {
+      exportedAt: new Date().toISOString(),
+      totalFiles: successFiles.length,
+      totalLineItems: allLineItems.length,
+      files: successFiles.map(f => ({
         fileName: f.fileName,
         imageUrl: f.imageUrl,
         lineItems: f.lineItems,
         ocrBlocks: f.ocrBlocks,
         metadata: f.metadata,
       })),
-  }), [processedFiles]);
+    };
+  }, [processedFiles]);
 
   // Step 1: Upload Page
   if (step === 'upload') {

@@ -21,6 +21,8 @@ export interface FileProcessingResult {
 
 export interface ExportData {
   exportedAt: string;
+  totalFiles: number;
+  totalLineItems: number;
   files: {
     fileName: string;
     imageUrl: string;

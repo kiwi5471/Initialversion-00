@@ -56,6 +56,7 @@ export function RecognitionItemList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
   const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
+  const [deleteFormAmounts, setDeleteFormAmounts] = useState({ amount_with_tax: "", input_tax: "" });
 
   const updateEditingId = (id: string | null) => {
     setEditingId(id);
@@ -104,9 +105,40 @@ export function RecognitionItemList({
   const handleDeleteClick = (item: LineItem) => {
     if (item.amount_with_tax !== 0 || item.input_tax !== 0) {
       setDeleteWarningItem(item);
+      setDeleteFormAmounts({
+        amount_with_tax: String(item.amount_with_tax),
+        input_tax: String(item.input_tax),
+      });
     } else {
       onItemDelete(item.id);
     }
+  };
+
+  const handleDeleteFormChange = (field: 'amount_with_tax' | 'input_tax', value: string) => {
+    // Only allow numeric input (including empty string)
+    if (value === "" || /^\d*\.?\d*$/.test(value)) {
+      setDeleteFormAmounts(prev => ({ ...prev, [field]: value }));
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteWarningItem) {
+      const amountWithTax = parseFloat(deleteFormAmounts.amount_with_tax) || 0;
+      const inputTax = parseFloat(deleteFormAmounts.input_tax) || 0;
+      
+      if (amountWithTax === 0 && inputTax === 0) {
+        // Update the item with zero values first, then delete
+        onItemUpdate(deleteWarningItem.id, { amount_with_tax: 0, input_tax: 0 });
+        onItemDelete(deleteWarningItem.id);
+        setDeleteWarningItem(null);
+      }
+    }
+  };
+
+  const canDeleteNow = () => {
+    const amountWithTax = parseFloat(deleteFormAmounts.amount_with_tax) || 0;
+    const inputTax = parseFloat(deleteFormAmounts.input_tax) || 0;
+    return amountWithTax === 0 && inputTax === 0;
   };
 
   if (items.length === 0) {
@@ -338,20 +370,43 @@ export function RecognitionItemList({
       <AlertDialog open={!!deleteWarningItem} onOpenChange={(open) => !open && setDeleteWarningItem(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>無法刪除</AlertDialogTitle>
+            <AlertDialogTitle>刪除明細</AlertDialogTitle>
             <AlertDialogDescription>
-              此明細的含稅金額或稅額欄位有值，請先清空這些欄位後再刪除。
+              請將含稅金額及稅額調整為 0 後才能刪除此明細。
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">含稅金額</label>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={deleteFormAmounts.amount_with_tax}
+                onChange={(e) => handleDeleteFormChange('amount_with_tax', e.target.value)}
+                placeholder="0"
+                className="text-right"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">稅額</label>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={deleteFormAmounts.input_tax}
+                onChange={(e) => handleDeleteFormChange('input_tax', e.target.value)}
+                placeholder="0"
+                className="text-right"
+              />
+            </div>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              if (deleteWarningItem) {
-                startEditing(deleteWarningItem);
-                setDeleteWarningItem(null);
-              }
-            }}>
-              前往編輯
+            <AlertDialogAction 
+              onClick={handleConfirmDelete}
+              disabled={!canDeleteNow()}
+              className={!canDeleteNow() ? "opacity-50 cursor-not-allowed" : ""}
+            >
+              確認刪除
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

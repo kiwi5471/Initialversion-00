@@ -57,6 +57,7 @@ export function RecognitionItemList({
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
   const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
   const [deleteFormAmounts, setDeleteFormAmounts] = useState({ amount_with_tax: "", input_tax: "" });
+  const [validationErrors, setValidationErrors] = useState<{ tax_id?: string; invoice_number?: string }>({});
 
   const updateEditingId = (id: string | null) => {
     setEditingId(id);
@@ -78,6 +79,37 @@ export function RecognitionItemList({
     return dotIndex >= 0 ? label.substring(dotIndex + 1) : label;
   };
 
+  // Validation functions
+  const validateTaxId = (value: string | null): string | undefined => {
+    if (!value || value === "") return undefined; // Allow empty
+    if (!/^\d{8}$/.test(value)) {
+      return "統編必須為 8 位純數字";
+    }
+    return undefined;
+  };
+
+  const validateInvoiceNumber = (value: string | null): string | undefined => {
+    if (!value || value === "") return undefined; // Allow empty
+    if (!/^[A-Za-z]{2}\d{8}$/.test(value)) {
+      return "發票號碼格式：2碼英文 + 8碼數字";
+    }
+    return undefined;
+  };
+
+  const handleTaxIdChange = (value: string) => {
+    // Only allow digits, max 8 characters
+    const cleanValue = value.replace(/\D/g, '').slice(0, 8);
+    setEditForm(prev => ({ ...prev, tax_id: cleanValue || null }));
+    setValidationErrors(prev => ({ ...prev, tax_id: validateTaxId(cleanValue) }));
+  };
+
+  const handleInvoiceNumberChange = (value: string) => {
+    // Allow letters and digits, max 10 characters (2 letters + 8 digits)
+    const cleanValue = value.toUpperCase().slice(0, 10);
+    setEditForm(prev => ({ ...prev, invoice_number: cleanValue || null }));
+    setValidationErrors(prev => ({ ...prev, invoice_number: validateInvoiceNumber(cleanValue) }));
+  };
+
   const startEditing = (item: LineItem) => {
     updateEditingId(item.id);
     setEditForm({
@@ -89,17 +121,32 @@ export function RecognitionItemList({
       amount_with_tax: item.amount_with_tax,
       input_tax: item.input_tax,
     });
+    setValidationErrors({
+      tax_id: validateTaxId(item.tax_id),
+      invoice_number: validateInvoiceNumber(item.invoice_number),
+    });
   };
 
   const saveEdit = (id: string) => {
+    // Validate before saving
+    const taxIdError = validateTaxId(editForm.tax_id as string | null);
+    const invoiceError = validateInvoiceNumber(editForm.invoice_number as string | null);
+    
+    if (taxIdError || invoiceError) {
+      setValidationErrors({ tax_id: taxIdError, invoice_number: invoiceError });
+      return;
+    }
+    
     onItemUpdate(id, editForm);
     updateEditingId(null);
     setEditForm({});
+    setValidationErrors({});
   };
 
   const cancelEdit = () => {
     updateEditingId(null);
     setEditForm({});
+    setValidationErrors({});
   };
 
   const handleDeleteClick = (item: LineItem) => {
@@ -215,13 +262,19 @@ export function RecognitionItemList({
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        value={editForm.tax_id || ""}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, tax_id: e.target.value || null }))}
-                        placeholder="統編"
-                        maxLength={8}
-                        className="h-10 text-sm"
-                      />
+                      <div className="space-y-1">
+                        <Input
+                          value={editForm.tax_id || ""}
+                          onChange={(e) => handleTaxIdChange(e.target.value)}
+                          placeholder="8位數字"
+                          maxLength={8}
+                          inputMode="numeric"
+                          className={cn("h-10 text-sm font-mono", validationErrors.tax_id && "border-destructive")}
+                        />
+                        {validationErrors.tax_id && (
+                          <p className="text-[10px] text-destructive">{validationErrors.tax_id}</p>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Input
@@ -232,12 +285,18 @@ export function RecognitionItemList({
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        value={editForm.invoice_number || ""}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, invoice_number: e.target.value || null }))}
-                        placeholder="發票號碼"
-                        className="h-10 text-sm"
-                      />
+                      <div className="space-y-1">
+                        <Input
+                          value={editForm.invoice_number || ""}
+                          onChange={(e) => handleInvoiceNumberChange(e.target.value)}
+                          placeholder="AB12345678"
+                          maxLength={10}
+                          className={cn("h-10 text-sm font-mono uppercase", validationErrors.invoice_number && "border-destructive")}
+                        />
+                        {validationErrors.invoice_number && (
+                          <p className="text-[10px] text-destructive">{validationErrors.invoice_number}</p>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Input

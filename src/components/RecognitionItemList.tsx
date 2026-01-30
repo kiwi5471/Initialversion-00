@@ -335,11 +335,13 @@ export function RecognitionItemList({
                     <TableCell>
                       <Input
                         type="text"
-                        inputMode="numeric"
+                        inputMode="decimal"
                         value={editForm.amount_with_tax ?? ''}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/\D/g, '');
-                          setEditForm(prev => ({ ...prev, amount_with_tax: val === '' ? 0 : Number(val) }));
+                          const val = e.target.value;
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setEditForm(prev => ({ ...prev, amount_with_tax: val === '' ? 0 : Number(val) }));
+                          }
                         }}
                         onKeyDown={handleInputKeyDown}
                         className="h-10 text-sm text-right font-mono"
@@ -348,11 +350,13 @@ export function RecognitionItemList({
                     <TableCell>
                       <Input
                         type="text"
-                        inputMode="numeric"
+                        inputMode="decimal"
                         value={editForm.input_tax ?? ''}
                         onChange={(e) => {
-                          const val = e.target.value.replace(/\D/g, '');
-                          setEditForm(prev => ({ ...prev, input_tax: val === '' ? 0 : Number(val) }));
+                          const val = e.target.value;
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setEditForm(prev => ({ ...prev, input_tax: val === '' ? 0 : Number(val) }));
+                          }
                         }}
                         onKeyDown={handleInputKeyDown}
                         className="h-10 text-sm text-right font-mono"

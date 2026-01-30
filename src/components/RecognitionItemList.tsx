@@ -104,10 +104,27 @@ export function RecognitionItemList({
   };
 
   const handleInvoiceNumberChange = (value: string) => {
-    // Allow letters and digits, max 10 characters (2 letters + 8 digits)
-    const cleanValue = value.toUpperCase().slice(0, 10);
-    setEditForm(prev => ({ ...prev, invoice_number: cleanValue || null }));
-    setValidationErrors(prev => ({ ...prev, invoice_number: validateInvoiceNumber(cleanValue) }));
+    // Force format: first 2 chars must be letters, remaining 8 must be digits
+    const upper = value.toUpperCase();
+    let result = '';
+    
+    for (let i = 0; i < upper.length && result.length < 10; i++) {
+      const char = upper[i];
+      if (result.length < 2) {
+        // First 2 positions: only allow A-Z
+        if (/[A-Z]/.test(char)) {
+          result += char;
+        }
+      } else {
+        // Positions 3-10: only allow 0-9
+        if (/\d/.test(char)) {
+          result += char;
+        }
+      }
+    }
+    
+    setEditForm(prev => ({ ...prev, invoice_number: result || null }));
+    setValidationErrors(prev => ({ ...prev, invoice_number: validateInvoiceNumber(result) }));
   };
 
   const startEditing = (item: LineItem) => {

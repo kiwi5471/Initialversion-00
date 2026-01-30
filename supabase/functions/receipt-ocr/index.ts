@@ -46,7 +46,7 @@ serve(async (req) => {
       "vendor": "賣方廠商名稱（開立發票的營業人）",
       "tax_id": "賣方統一編號（8碼，僅數字，無則為 null）",
       "date": "YYYY-MM-DD",
-      "invoice_number": "發票號碼（如：AB-12345678）",
+      "invoice_number": "發票號碼（格式必須是：2碼英文+8碼數字，如 AB12345678，不可有連字號或其他符號）",
       "amount_with_tax": 含稅金額數字,
       "input_tax": 進項稅額數字,
       "editable": true,
@@ -86,7 +86,7 @@ serve(async (req) => {
 2. vendor: 【賣方】廠商名稱（開立發票的營業人，非買受人）
 3. tax_id: 【賣方】統一編號（8碼數字，無則為 null）
 4. date: 發票日期（YYYY-MM-DD 格式）
-5. invoice_number: 發票號碼
+5. invoice_number: 發票號碼（必須是 2 碼英文 + 8 碼數字，如 AB12345678，不可有連字號）
 6. amount_with_tax: 含稅金額
 7. input_tax: 進項稅額（通常為含稅金額的 5%，即 含稅金額 - 未稅金額）
 8. editable: 一律為 true
@@ -303,13 +303,26 @@ serve(async (req) => {
         ? item.input_tax 
         : Math.round(amountWithTax - amountWithTax / 1.05);
 
+      // Clean and validate invoice_number - must be 2 letters + 8 digits
+      let invoiceNumber = item.invoice_number || null;
+      if (invoiceNumber) {
+        // Remove dashes, spaces, and other non-alphanumeric characters
+        invoiceNumber = invoiceNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        // Validate format: 2 letters + 8 digits
+        if (!/^[A-Z]{2}\d{8}$/.test(invoiceNumber)) {
+          // Try to extract valid pattern from the string
+          const match = invoiceNumber.match(/([A-Z]{2})(\d{8})/);
+          invoiceNumber = match ? match[1] + match[2] : null;
+        }
+      }
+
       return {
         id: item.id || `line_${String(index + 1).padStart(3, '0')}`,
         category: item.category || '0',
         vendor: item.vendor || metadataVendor || '未知廠商',
         tax_id: taxId,
         date: item.date || extractedData.metadata?.date || null,
-        invoice_number: item.invoice_number || null,
+        invoice_number: invoiceNumber,
         amount_with_tax: amountWithTax,
         input_tax: inputTax,
         editable: true,

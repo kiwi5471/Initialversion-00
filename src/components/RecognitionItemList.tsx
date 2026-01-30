@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LineItem, DOCUMENT_CATEGORIES } from "@/types/recognition";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,6 +58,14 @@ export function RecognitionItemList({
   const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
   const [deleteFormAmounts, setDeleteFormAmounts] = useState({ amount_with_tax: "", input_tax: "" });
   const [validationErrors, setValidationErrors] = useState<{ tax_id?: string; invoice_number?: string }>({});
+
+  // Reset editing state when items change (e.g., switching files)
+  useEffect(() => {
+    setEditingId(null);
+    setEditForm({});
+    setValidationErrors({});
+    onEditingChange?.(false);
+  }, [items]);
 
   const updateEditingId = (id: string | null) => {
     setEditingId(id);

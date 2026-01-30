@@ -19,14 +19,27 @@ export interface FileProcessingResult {
   error?: string;
 }
 
+// Exported LineItem without sourceBlockIds
+export interface ExportedLineItem {
+  id: string;
+  category: string;
+  vendor: string;
+  tax_id: string | null;
+  date: string | null;
+  invoice_number: string | null;
+  amount_with_tax: string;
+  input_tax: string;
+  editable: boolean;
+  confirmed: boolean;
+}
+
 export interface ExportData {
   exportedAt: string;
   totalFiles: number;
   totalLineItems: number;
   files: {
     fileName: string;
-    imageUrl: string;
-    lineItems: LineItem[];
+    lineItems: ExportedLineItem[];
     ocrBlocks: OCRBlock[];
     metadata?: OCRMetadata;
   }[];

@@ -55,6 +55,7 @@ export function RecognitionItemList({
 }: RecognitionItemListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<LineItem>>({});
+  const [editAmountStrings, setEditAmountStrings] = useState({ amount_with_tax: "", input_tax: "" });
   const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
   const [deleteFormAmounts, setDeleteFormAmounts] = useState({ amount_with_tax: "", input_tax: "" });
   const [validationErrors, setValidationErrors] = useState<{ tax_id?: string; invoice_number?: string }>({});
@@ -151,6 +152,10 @@ export function RecognitionItemList({
       amount_with_tax: item.amount_with_tax,
       input_tax: item.input_tax,
     });
+    setEditAmountStrings({
+      amount_with_tax: String(item.amount_with_tax),
+      input_tax: String(item.input_tax),
+    });
     setValidationErrors({
       tax_id: validateTaxId(item.tax_id),
       invoice_number: validateInvoiceNumber(item.invoice_number),
@@ -167,9 +172,17 @@ export function RecognitionItemList({
       return;
     }
     
-    onItemUpdate(id, editForm);
+    // Convert string amounts to numbers when saving
+    const updatedForm = {
+      ...editForm,
+      amount_with_tax: parseFloat(editAmountStrings.amount_with_tax) || 0,
+      input_tax: parseFloat(editAmountStrings.input_tax) || 0,
+    };
+    
+    onItemUpdate(id, updatedForm);
     updateEditingId(null);
     setEditForm({});
+    setEditAmountStrings({ amount_with_tax: "", input_tax: "" });
     setValidationErrors({});
   };
 
@@ -336,11 +349,11 @@ export function RecognitionItemList({
                       <Input
                         type="text"
                         inputMode="decimal"
-                        value={editForm.amount_with_tax ?? ''}
+                        value={editAmountStrings.amount_with_tax}
                         onChange={(e) => {
                           const val = e.target.value;
                           if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                            setEditForm(prev => ({ ...prev, amount_with_tax: val === '' ? 0 : Number(val) }));
+                            setEditAmountStrings(prev => ({ ...prev, amount_with_tax: val }));
                           }
                         }}
                         onKeyDown={handleInputKeyDown}
@@ -351,11 +364,11 @@ export function RecognitionItemList({
                       <Input
                         type="text"
                         inputMode="decimal"
-                        value={editForm.input_tax ?? ''}
+                        value={editAmountStrings.input_tax}
                         onChange={(e) => {
                           const val = e.target.value;
                           if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                            setEditForm(prev => ({ ...prev, input_tax: val === '' ? 0 : Number(val) }));
+                            setEditAmountStrings(prev => ({ ...prev, input_tax: val }));
                           }
                         }}
                         onKeyDown={handleInputKeyDown}

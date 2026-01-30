@@ -78,11 +78,12 @@ export function RecognitionItemList({
     e.stopPropagation();
   };
 
-  const formatAmount = (amount: number) => {
+  const formatAmount = (amount: string) => {
+    const num = parseFloat(amount) || 0;
     return new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+      maximumFractionDigits: 2,
+    }).format(num);
   };
 
   const getCategoryShortLabel = (value: string) => {
@@ -172,11 +173,11 @@ export function RecognitionItemList({
       return;
     }
     
-    // Convert string amounts to numbers when saving
+    // Keep amounts as strings
     const updatedForm = {
       ...editForm,
-      amount_with_tax: parseFloat(editAmountStrings.amount_with_tax) || 0,
-      input_tax: parseFloat(editAmountStrings.input_tax) || 0,
+      amount_with_tax: editAmountStrings.amount_with_tax || "0",
+      input_tax: editAmountStrings.input_tax || "0",
     };
     
     onItemUpdate(id, updatedForm);
@@ -193,11 +194,13 @@ export function RecognitionItemList({
   };
 
   const handleDeleteClick = (item: LineItem) => {
-    if (item.amount_with_tax !== 0 || item.input_tax !== 0) {
+    const amountNum = parseFloat(item.amount_with_tax) || 0;
+    const taxNum = parseFloat(item.input_tax) || 0;
+    if (amountNum !== 0 || taxNum !== 0) {
       setDeleteWarningItem(item);
       setDeleteFormAmounts({
-        amount_with_tax: String(item.amount_with_tax),
-        input_tax: String(item.input_tax),
+        amount_with_tax: item.amount_with_tax,
+        input_tax: item.input_tax,
       });
     } else {
       onItemDelete(item.id);
@@ -218,7 +221,7 @@ export function RecognitionItemList({
       
       if (amountWithTax === 0 && inputTax === 0) {
         // Update the item with zero values first, then delete
-        onItemUpdate(deleteWarningItem.id, { amount_with_tax: 0, input_tax: 0 });
+        onItemUpdate(deleteWarningItem.id, { amount_with_tax: "0", input_tax: "0" });
         onItemDelete(deleteWarningItem.id);
         setDeleteWarningItem(null);
       }

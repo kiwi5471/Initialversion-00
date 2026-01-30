@@ -235,8 +235,8 @@ export default function ReceiptRecognition() {
       tax_id: null,
       date: null,
       invoice_number: null,
-      amount_with_tax: 0,
-      input_tax: 0,
+      amount_with_tax: "0",
+      input_tax: "0",
       editable: true,
       confirmed: false,
       sourceBlockIds: [],
@@ -322,7 +322,7 @@ export default function ReceiptRecognition() {
     );
   }, [activeFileId]);
 
-  const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + item.amount_with_tax, 0) || 0;
+  const totalAmount = activeFile?.lineItems.reduce((sum, item) => sum + (parseFloat(item.amount_with_tax) || 0), 0) || 0;
 
   // Export data
   const exportData: ExportData = useMemo(() => {

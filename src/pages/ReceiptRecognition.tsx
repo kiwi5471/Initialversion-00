@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { LineItem, OCRBlock } from "@/types/recognition";
-import { FileProcessingResult, UploadedFileItem, ExportData } from "@/types/batch";
+import { FileProcessingResult, UploadedFileItem, ExportData, ExportedLineItem } from "@/types/batch";
 import { ReceiptUploader } from "@/components/ReceiptUploader";
 import { UploadFileList } from "@/components/UploadFileList";
 import { RecognitionItemList } from "@/components/RecognitionItemList";
@@ -327,28 +327,32 @@ export default function ReceiptRecognition() {
   // Export data
   const exportData: ExportData = useMemo(() => {
     const successFiles = processedFiles.filter(f => f.status === 'success');
-    const allLineItems = successFiles.flatMap(f => f.lineItems);
+    const allItems: ExportedLineItem[] = successFiles.flatMap(f => 
+      f.lineItems.map(item => {
+        const amountWithTax = parseFloat(item.amount_with_tax) || 0;
+        const inputTax = parseFloat(item.input_tax) || 0;
+        const amountWithoutTax = amountWithTax - inputTax;
+        
+        return {
+          name: item.invoice_number,
+          category: item.category,
+          tax_id: item.tax_id,
+          vendor: item.vendor,
+          date: item.date,
+          amount_without_tax: String(amountWithoutTax),
+          tax_amount: item.input_tax,
+          amount_with_tax: item.amount_with_tax,
+          scanned_filename: f.fileName,
+          file_path: f.imageUrl,
+          user_id: '',
+          username: '',
+        };
+      })
+    );
     return {
       exportedAt: new Date().toISOString(),
-      totalFiles: successFiles.length,
-      totalLineItems: allLineItems.length,
-      files: successFiles.map(f => ({
-        fileName: f.fileName,
-        lineItems: f.lineItems.map(item => ({
-          id: item.id,
-          category: item.category,
-          vendor: item.vendor,
-          tax_id: item.tax_id,
-          date: item.date,
-          invoice_number: item.invoice_number,
-          amount_with_tax: item.amount_with_tax,
-          input_tax: item.input_tax,
-          editable: item.editable,
-          confirmed: item.confirmed,
-        })),
-        ocrBlocks: f.ocrBlocks,
-        metadata: f.metadata,
-      })),
+      totalItems: allItems.length,
+      items: allItems,
     };
   }, [processedFiles]);
 

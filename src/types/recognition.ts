@@ -5,8 +5,8 @@ export interface LineItem {
   tax_id: string | null; // 統編
   date: string | null; // 年月日
   invoice_number: string | null; // 發票號碼
-  amount_with_tax: number; // 含稅金額
-  input_tax: number; // 進項稅額
+  amount_with_tax: string; // 含稅金額（字串格式）
+  input_tax: string; // 進項稅額（字串格式）
   editable: boolean;
   confirmed: boolean;
   sourceBlockIds: string[];

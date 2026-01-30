@@ -323,8 +323,8 @@ serve(async (req) => {
         tax_id: taxId,
         date: item.date || extractedData.metadata?.date || null,
         invoice_number: invoiceNumber,
-        amount_with_tax: amountWithTax,
-        input_tax: inputTax,
+        amount_with_tax: String(amountWithTax),
+        input_tax: String(inputTax),
         editable: true,
         sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
       };
@@ -341,8 +341,8 @@ serve(async (req) => {
         tax_id: metadataTaxId,
         date: extractedData.metadata?.date || null,
         invoice_number: null,
-        amount_with_tax: totalAmount,
-        input_tax: Math.round(totalAmount - totalAmount / 1.05),
+        amount_with_tax: String(totalAmount),
+        input_tax: String(Math.round(totalAmount - totalAmount / 1.05)),
         editable: true,
         sourceBlockIds: totalBlocks.length > 0 ? [totalBlocks[0].id] : []
       });

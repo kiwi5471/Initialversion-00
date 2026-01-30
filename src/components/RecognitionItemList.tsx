@@ -334,20 +334,32 @@ export function RecognitionItemList({
                     </TableCell>
                     <TableCell>
                       <Input
-                        type="number"
-                        value={editForm.amount_with_tax || 0}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, amount_with_tax: Number(e.target.value) }))}
+                        type="text"
+                        inputMode="decimal"
+                        value={editForm.amount_with_tax ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setEditForm(prev => ({ ...prev, amount_with_tax: val === '' ? 0 : Number(val) }));
+                          }
+                        }}
                         onKeyDown={handleInputKeyDown}
-                        className="h-10 text-sm text-right"
+                        className="h-10 text-sm text-right font-mono"
                       />
                     </TableCell>
                     <TableCell>
                       <Input
-                        type="number"
-                        value={editForm.input_tax || 0}
-                        onChange={(e) => setEditForm(prev => ({ ...prev, input_tax: Number(e.target.value) }))}
+                        type="text"
+                        inputMode="decimal"
+                        value={editForm.input_tax ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                            setEditForm(prev => ({ ...prev, input_tax: val === '' ? 0 : Number(val) }));
+                          }
+                        }}
                         onKeyDown={handleInputKeyDown}
-                        className="h-10 text-sm text-right"
+                        className="h-10 text-sm text-right font-mono"
                       />
                     </TableCell>
                     <TableCell>

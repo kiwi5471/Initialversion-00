@@ -64,6 +64,11 @@ export function RecognitionItemList({
     onEditingChange?.(id !== null);
   };
 
+  // Prevent keyboard events from bubbling up when editing inputs
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    e.stopPropagation();
+  };
+
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat("zh-TW", {
       minimumFractionDigits: 0,
@@ -274,6 +279,7 @@ export function RecognitionItemList({
                       <Input
                         value={editForm.vendor || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, vendor: e.target.value }))}
+                        onKeyDown={handleInputKeyDown}
                         placeholder="廠商"
                         className="h-10 text-sm"
                       />
@@ -283,6 +289,7 @@ export function RecognitionItemList({
                         <Input
                           value={editForm.tax_id || ""}
                           onChange={(e) => handleTaxIdChange(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
                           placeholder="8位數字"
                           maxLength={8}
                           inputMode="numeric"
@@ -298,6 +305,7 @@ export function RecognitionItemList({
                         type="date"
                         value={editForm.date || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value || null }))}
+                        onKeyDown={handleInputKeyDown}
                         className="h-10 text-sm"
                       />
                     </TableCell>
@@ -306,6 +314,7 @@ export function RecognitionItemList({
                         <Input
                           value={editForm.invoice_number || ""}
                           onChange={(e) => handleInvoiceNumberChange(e.target.value)}
+                          onKeyDown={handleInputKeyDown}
                           placeholder="AB12345678"
                           maxLength={10}
                           className={cn("h-10 text-sm font-mono uppercase", validationErrors.invoice_number && "border-destructive")}
@@ -320,6 +329,7 @@ export function RecognitionItemList({
                         type="number"
                         value={editForm.amount_with_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, amount_with_tax: Number(e.target.value) }))}
+                        onKeyDown={handleInputKeyDown}
                         className="h-10 text-sm text-right"
                       />
                     </TableCell>
@@ -328,6 +338,7 @@ export function RecognitionItemList({
                         type="number"
                         value={editForm.input_tax || 0}
                         onChange={(e) => setEditForm(prev => ({ ...prev, input_tax: Number(e.target.value) }))}
+                        onKeyDown={handleInputKeyDown}
                         className="h-10 text-sm text-right"
                       />
                     </TableCell>

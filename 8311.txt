@@ -1,0 +1,543 @@
+<%@ Language=VBScript CODEPAGE=65001%>
+<%Response.Buffer = true
+Response.CodePage = 65001
+Response.Charset = "utf-8" %>
+<%Response.CacheControl="no-cache"%>
+<%Response.AddHeader "Pragma","no-cache"%>
+<%Response.Expires=-1%>
+<HTML>
+<HEAD>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<TITLE></TITLE>
+<link rel="stylesheet" type="text/css" href="css/cfachead.css">
+<style>
+@font-face {
+  font-family:EUDC;
+    src:url('/fonts/EUDC.woff2?v=1.0.0')format('woff2'),
+        url('/fonts/EUDC.woff?v=1.0.0') format('woff')
+    ;
+}
+body,input{font-family:"EUDC"}
+</style>
+</HEAD>
+<!--#include file="PFAC0009.ASP"-->
+<%
+
+' Set PFGAOBJ = SERVER.CreateObject("PFAC6720.CFAC6720")
+' RC = PFGAOBJ.GetApvRS("780450",RS)
+
+' response.write "待決裁 :" & RS.recordcount & "筆<br>"
+' Response.Write "-------------------------------------------------------<br>"
+' While Not RS.EOF
+'     For Each Field in RS.Fields
+'         Response.Write Field.Name & ": " & Field.Value & "<br>"
+'     Next
+' 	Response.Write "-------------------------------------------------------<br>"
+'     RS.MoveNext
+' Wend
+
+' Set RS = Nothing
+' response.end
+
+on Error Resume Next
+GETYYMMDD = right(cstr(year(now)),4) & right(cstr(cint(month(now))+100),2)  & right(cstr(cint(day(now))+100),2)
+dim EditFlag
+kind=Request.Form("txtkind")
+
+if kind = "" THEN
+  kind = "B"
+END IF
+
+txtDate = TRIM(Request.Form("txtDate"))
+
+EditFlag=Request.Form("text9")
+PageNum=Request.Form("PageNum")
+CurrentPage=Request.Form("CurrentPage")
+optionflag=Request.Form("optionflag")
+IF (Request.QueryString("acpath")<>"") then
+	acpath=Request.QueryString("acpath")
+END IF
+IF trim(PageNum) = "" then
+  PageNum = 0
+end if
+IF trim(CurrentPage) = "" then
+  CurrentPage = 0
+end if
+IF TRIM(optionflag)="" OR ISNULL(optionflag) THEN
+   optionflag = "B1"
+END IF
+
+SET OBJF=Server.CreateObject("PFFA1040.CFFA1040")
+
+IF MID(GETYYMMDD,5,2) = "04" THEN
+    SQL="SELECT ISNULL(MAX(TDATE),'') AS TDATE FROM (SELECT DISTINCT TDATE FROM TFACTR01 WHERE TDAYMK='N' UNION SELECT DISTINCT TDATE FROM TFACTRB1 WHERE TDAYMK='N') TT"
+ELSE
+    SQL="SELECT ISNULL(MAX(TDATE),'') AS TDATE FROM (SELECT DISTINCT TDATE FROM TFACTR01 WHERE TDAYMK='N' UNION SELECT DISTINCT TDATE FROM TFACTRA1 WHERE TDAYMK='N') TT"
+END IF
+RC=OBJF.QRY(SESSION("varCompany"),SQL,RSYYMM)
+YYYYMM=RSYYMM("TDATE")
+YYYYMMAMT=1
+IF YYYYMM="" THEN
+
+
+YYYYMM=GETYYMMDD
+END IF  
+AAA="" 
+
+'排序日期大到小取20筆
+'999999第1行:應簽章的人
+'年月日第2行:沒簽的人是未完成，有簽的人是完成，CODE和簽章不同人，加人名
+'第一個人簽完後，後面才有未完成 '20230614已修改
+CD_ID="C29"
+SQL="SELECT TOP 20 YYYYMMHD=YYYYMM,FORMIDHD=FORMID,FORMNAME=CASE FORMID WHEN 'PFGA8020' THEN '台幣電匯' WHEN 'PFGA8040' THEN '票據' WHEN 'PFGA8030' THEN '外幣電匯'"
+SQL=SQL & " WHEN 'PFGA8050' THEN '員工CASHLESS'"
+SQL=SQL & " WHEN 'PFFA2080' THEN '設備' WHEN 'PFFA3160' THEN '模具' WHEN 'PFGA5030' THEN '付給業者'"
+SQL=SQL & " WHEN 'PMPY1070' THEN '材料應付帳款' WHEN 'PFAC0680' THEN '資金日記表' ELSE '' END"
+SQL=SQL & " ,SF1=CASE WHEN RIGHT(YYYYMM,2) = '99' THEN T2.S1 WHEN T1.F1 <> '' THEN '完成' WHEN LEFT(CONVERT(VARCHAR(8),D1,112),LEN(YYYYMM)) > YYYYMM THEN '-' WHEN (YYYYMM='" & YYYYMM & "' AND " & YYYYMMAMT & "=0) OR DAY(DATEADD(DAY, 1,YYYYMM))=1 THEN '-' WHEN T2.S1 <>'' THEN '未完成' ELSE '' END+CASE WHEN RIGHT(YYYYMM,2) <> '99' AND T1.F1 <> '' AND T2.S1 <> '' AND T1.F1 <> T2.S1 THEN '/'+T1.F1 ELSE '' END"
+SQL=SQL & " ,SF2=CASE WHEN RIGHT(YYYYMM,2) = '99' THEN T2.S2 WHEN T1.F2 <> '' THEN '完成' WHEN LEFT(CONVERT(VARCHAR(8),D2,112),LEN(YYYYMM)) > YYYYMM THEN '-' WHEN (YYYYMM='" & YYYYMM & "' AND " & YYYYMMAMT & "=0) OR DAY(DATEADD(DAY, 1,YYYYMM))=1 THEN '-' WHEN T2.S2 <>'' THEN '未完成' ELSE '' END+CASE WHEN RIGHT(YYYYMM,2) <> '99' AND T1.F2 <> '' AND T2.S2 <> '' AND T1.F2 <> T2.S2 THEN '/'+T1.F2 ELSE '' END"
+SQL=SQL & " ,SF3=CASE WHEN RIGHT(YYYYMM,2) = '99' THEN T2.S3 WHEN T1.F3 <> '' THEN '完成' WHEN LEFT(CONVERT(VARCHAR(8),D3,112),LEN(YYYYMM)) > YYYYMM THEN '-' WHEN (YYYYMM='" & YYYYMM & "' AND " & YYYYMMAMT & "=0) OR DAY(DATEADD(DAY, 1,YYYYMM))=1 THEN '-' WHEN T2.S3 <>'' THEN '未完成' ELSE '' END+CASE WHEN RIGHT(YYYYMM,2) <> '99' AND T1.F3 <> '' AND T2.S3 <> '' AND T1.F3 <> T2.S3 THEN '/'+T1.F3 ELSE '' END"
+SQL=SQL & " ,SF4=CASE WHEN RIGHT(YYYYMM,2) = '99' THEN T2.S4 WHEN T1.F4 <> '' THEN '完成' WHEN LEFT(CONVERT(VARCHAR(8),D4,112),LEN(YYYYMM)) > YYYYMM THEN '-' WHEN (YYYYMM='" & YYYYMM & "' AND " & YYYYMMAMT & "=0) OR DAY(DATEADD(DAY, 1,YYYYMM))=1 THEN '-' WHEN T2.S4 <>'' THEN '未完成' ELSE '' END+CASE WHEN RIGHT(YYYYMM,2) <> '99' AND T1.F4 <> '' AND T2.S4 <> '' AND T1.F4 <> T2.S4 THEN '/'+T1.F4 ELSE '' END"
+SQL=SQL & " FROM (SELECT FORMID,YYYYMM,"
+SQL=SQL & " F1=MAX(CASE WHEN T.RW=1 THEN USERNAME ELSE '' END),"
+SQL=SQL & " F2=MAX(CASE WHEN T.RW=2 THEN USERNAME ELSE '' END),"
+SQL=SQL & " F3=MAX(CASE WHEN T.RW=3 THEN USERNAME ELSE '' END),"
+SQL=SQL & " F4=MAX(CASE WHEN T.RW=4 THEN USERNAME ELSE '' END)"
+SQL=SQL & " FROM (SELECT  *,RW=ROW_NUMBER() OVER(PARTITION BY FORMID,YYYYMM ORDER BY SNO) FROM TFACSIGN WHERE YYYYMM>=FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd')"
+SQL=SQL & " UNION"
+SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8020' WHEN 'C26' THEN 'PFFA2080' WHEN 'C28' THEN 'PMPY1070' WHEN 'C29' THEN 'PFAC0680' ELSE '' END,YYYYMM99='999999',CD_MEMO,CD_CODE"
+SQL=SQL & " ,CD_DESCRIPTION,CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE WHERE CD_ID='C23' OR CD_ID='C26' OR CD_ID='C28' OR CD_ID='C29'"
+SQL=SQL & " UNION"
+
+SQL=SQL & " SELECT FORMID=F.FORMID,YYYYMM=D.TDATE,SNO='',USERID='',USERNAME='',SDATETIME='',SDATA='',RW='' "
+SQL=SQL & " FROM (SELECT DISTINCT FORMID FROM TFACSIGN WHERE FORMID='PFAC0680')F "
+SQL=SQL & " CROSS JOIN ( "
+SQL=SQL & " SELECT DISTINCT TDATE FROM TFACTR01 WHERE TDAYMK='N' AND TDATE>= FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd') "
+SQL=SQL & " AND TDATE NOT IN (SELECT YYYYMM FROM TFACSIGN WHERE FORMID='PFAC0680' AND YYYYMM>= FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd'))"
+SQL=SQL & " UNION "
+
+IF MID(GETYYMMDD,5,2) = "04" Then
+	SQL=SQL & " SELECT DISTINCT TDATE FROM TFACTRB1 WHERE TDAYMK='N' AND TDATE>= FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd') "
+Else
+	SQL=SQL & " SELECT DISTINCT TDATE FROM TFACTRA1 WHERE TDAYMK='N' AND TDATE>= FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd') "
+End If
+
+SQL=SQL & " AND TDATE NOT IN (SELECT YYYYMM FROM TFACSIGN WHERE FORMID='PFAC0680' AND YYYYMM>= FORMAT(DATEADD(MONTH, -3, GETDATE()), 'yyyyMMdd')))D"
+
+' SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8020' WHEN 'C26' THEN 'PFFA2080' WHEN 'C28' THEN 'PMPY1070' WHEN 'C29' THEN 'PFAC0680' ELSE '' END,YYYYMM99='" & YYYYMM & "',CD_MEMO,CD_CODE=''"
+' SQL=SQL & " ,CD_DESCRIPTION='',CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE"
+' SQL=SQL & " WHERE CASE CD_ID WHEN 'C23' THEN 'PFGA8020' WHEN 'C26' THEN 'PFFA2080' WHEN 'C28' THEN 'PMPY1070' WHEN 'C29' THEN 'PFAC0680' ELSE '' END+'" & YYYYMM & "' NOT IN (SELECT DISTINCT YYYYMM FROM TFACSIGN)"
+
+SQL=SQL & " ) T GROUP BY FORMID,YYYYMM) T1 JOIN ("
+SQL=SQL & " SELECT SORMID,"
+SQL=SQL & " S1=MAX(CASE WHEN T.RW=1 THEN CD_DESCRIPTION ELSE '' END),"
+SQL=SQL & " S2=MAX(CASE WHEN T.RW=2 THEN CD_DESCRIPTION ELSE '' END),"
+SQL=SQL & " S3=MAX(CASE WHEN T.RW=3 THEN CD_DESCRIPTION ELSE '' END),"
+SQL=SQL & " S4=MAX(CASE WHEN T.RW=4 THEN CD_DESCRIPTION ELSE '' END),"
+SQL=SQL & " D1=MAX(CASE WHEN T.RW=1 THEN CD_MAINT_DATE ELSE '' END),"
+SQL=SQL & " D2=MAX(CASE WHEN T.RW=2 THEN CD_MAINT_DATE ELSE '' END),"
+SQL=SQL & " D3=MAX(CASE WHEN T.RW=3 THEN CD_MAINT_DATE ELSE '' END),"
+SQL=SQL & " D4=MAX(CASE WHEN T.RW=4 THEN CD_MAINT_DATE ELSE '' END)"
+SQL=SQL & " FROM ("
+SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8020' WHEN 'C26' THEN 'PFFA2080' WHEN 'C28' THEN 'PMPY1070' WHEN 'C29' THEN 'PFAC0680' ELSE '' END,YYYYMM99='999999',CD_MEMO,CD_CODE"
+SQL=SQL & " ,CD_DESCRIPTION,CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE WHERE CD_ID='" & CD_ID & "'"
+SQL=SQL & " UNION"
+SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8030' WHEN 'C26' THEN 'PFFA3160' ELSE '' END,YYYYMM99='999999',CD_MEMO,CD_CODE"
+SQL=SQL & " ,CD_DESCRIPTION,CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE WHERE CD_ID='" & CD_ID & "'"
+SQL=SQL & " UNION"
+SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8040' WHEN 'C26' THEN 'PFGA5030' ELSE '' END,YYYYMM99='999999',CD_MEMO,CD_CODE"
+SQL=SQL & " ,CD_DESCRIPTION,CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE WHERE CD_ID='" & CD_ID & "'"
+SQL=SQL & " UNION"
+SQL=SQL & " SELECT SORMID=CASE CD_ID WHEN 'C23' THEN 'PFGA8050' ELSE '' END,YYYYMM99='999999',CD_MEMO,CD_CODE"
+SQL=SQL & " ,CD_DESCRIPTION,CD_MAINT_DATE,MAINT_CODE,RW=ROW_NUMBER() OVER (PARTITION BY CD_ID ORDER BY CD_MEMO) FROM TBASCODE WHERE CD_ID='" & CD_ID & "'"
+SQL=SQL & " ) T GROUP BY SORMID) T2 ON FORMID=SORMID  WHERE FORMID<>'' AND FORMID IN ('PFAC0680','PMPY1070','PFFA2080','PFFA3160','PFGA5030','PFGA8020','PFGA8030','PFGA8040','PFGA8050')"
+SQL=SQL & "  ORDER BY YYYYMMHD DESC,FORMID"
+'C23-PFGA8020,PFGA8030,PFGA8040,PFGA80520/C26-PFGA5030,PFFA2080,PFFA3160/C28-PMPY1070/C29-PFAC0680
+'RESPONSE.Write SQL
+RC=OBJF.QRY(SESSION("varCompany"),SQL,RSSIGN)
+SET OBJF=NOTHING
+
+
+%>
+
+<%
+MAILTXT = ""
+MAILTXT1 = ""
+
+Dim RC, MSG, RS_OUT, Obj9
+Dim staDate, endDate, varYYYYMM, varUSERID, varUSERNAME
+
+MSG = ""
+' staDate/endDate 若沒填，預設昨天
+If Request("staDate") <> "" Then
+    staDate = Request("staDate")
+Else
+    staDate = Year(DateAdd("d", -1, Date)) & Right("0" & Month(DateAdd("d", -1, Date)), 2) & Right("0" & Day(DateAdd("d", -1, Date)), 2)
+End If
+
+If Request("endDate") <> "" Then
+    endDate = Request("endDate")
+Else
+    endDate = Year(DateAdd("d", -1, Date)) & Right("0" & Month(DateAdd("d", -1, Date)), 2) & Right("0" & Day(DateAdd("d", -1, Date)), 2)
+End If
+
+' varYYYYMM 取 staDate 的年月
+varYYYYMM = Left(staDate, 6)
+
+varUSERID = "" ''
+varUSERNAME = ""  ' 如有需要可帶使用者名
+
+Set Obj9 = Server.CreateObject("PFAC3000.CFAC3010")
+RC = Obj9.Qry_Mail(staDate, endDate, varYYYYMM, varUSERID, varUSERNAME, MSG, RS_OUT)
+
+If Err.Number <> 0 Then
+    MSG = Err.Description
+ElseIf RC <> "0" Then
+    MSG = RC
+End If
+
+Set Obj9 = Nothing
+MAILTXT1 = MSG _
+    & "<br>" & staDate _
+    & "<br>" & endDate _
+    & "<br>" & varYYYYMM _
+    & "<br>" & varUSERID _
+    & "<br>" & varUSERNAME
+
+MAILTXT = MAILTXT  & "<html><head><title>郵件內容</title></head>"
+MAILTXT = MAILTXT  & "<body style='font-family:Microsoft JhengHei; font-size:14px;'>"
+MAILTXT = MAILTXT  & "<pre>" + MAILTXT1 + "</pre>"
+MAILTXT = MAILTXT  & "</body></html>"
+
+
+SET OBJ1 = CREATEOBJECT("PFACSYS.CFACSYS1")
+ToEMail1 = "ho.chii@tw.panasonic.com"
+ToEMail2 = ""
+ToEMail3 = ""
+ToEMail4 = ""
+ToEMail5 = ""
+
+'ToEMail2 = "sheu.shionli@tw.panasonic.com"	'許秀麗
+'ToEMail3 = "shih.chunchiao@tw.panasonic.com"'施春嬌
+'ToEMail4 = "huang.yoyo@tw.panasonic.com"	'黃千又
+'ToEMail4 = "kuo.nice@tw.panasonic.com"	'郭乃瑛 20230131
+'ToEMail5 = "fong.lihsiang@tw.panasonic.com"
+TEST = "" 
+'20130619 ServerIP變更
+IF Request.ServerVariables("LOCAL_ADDR") = "10.1.42.8"  or Request.ServerVariables("LOCAL_ADDR") = "10.90.118.89" Then
+	TEST = "(TEST)"
+End If
+
+'PTWG
+SERVNAME = "PTW"
+MESSG1	= MAILTXT
+MESSG2	= ""
+RC		= ""
+
+
+
+%>
+
+
+
+
+<script type="text/javascript" src="JS/MATH.JS">
+</script>
+<script type="text/javascript">
+<!--
+
+function mailtext_onclick() {
+    // 先開一個命名視窗，確保使用者動作觸發 popup；同名視窗後續會被 showMail() 寫入
+    window.open("", "MAILTEXT", "width=600,height=500,scrollbars=yes,resizable=yes");
+    return true; // 繼續提交表單
+}
+function showMail() {
+    // 從隱藏欄位取回伺服端組好的 HTML，避免字串內轉義錯誤
+    var txt = document.getElementById('MAILTXT_DATA').value;
+    var w = window.open("", "MAILTEXT", "width=600,height=500,scrollbars=yes,resizable=yes");
+    w.document.open();
+    w.document.write(txt);
+    w.document.close();
+}
+// ------------  當輸入日期後 ----------------------------------------
+function txtDate_onkeyup(){
+	var x=document.form1.txtDate.value;
+	document.form1.txtDate1.value=x;
+}
+
+
+// ------------  當按執行時 ----------------------------------------
+function exe_onclick(){
+	if(document.form1.YYYYMM.value==''){
+		alert('請輸入結帳年月 例: 202204 ! ');
+		document.form1.YYYYMM.focus();
+		return;
+	}
+	alert(document.form1.selRPT.value);
+	if (document.form1.text9.value =='Q'){
+		window.parent.frames["A_BODY"].document.form1.YYYYMM.value= document.form1.YYYYMM.value;
+		window.parent.frames["A_BODY"].document.form1.selRPT.value= document.form1.selRPT.value;
+		window.parent.frames["A_BODY"].document.form1.option1.value='Q'; 
+		window.parent.frames["A_BODY"].document.form1.submit();
+		window.parent.document.all.item("MAIN").rows="120,*,0,0"; 
+   		window.parent.HEAD.form1.button7.disabled=true;
+	}
+}
+
+function sign_onclick(s){	
+    if (document.form1.text9.value != "P" ){
+		if (window.confirm("沒有列印,不可以簽章!!是否執行列印?") == true){
+			butPRN_onclick();
+		    return false;
+			}
+		}
+		
+	if(document.form1.YYYYMM.value=='')
+	{
+		alert('請輸入結帳年月 例: 202204 ! ');
+		document.form1.YYYYMM.focus();
+
+		return;
+	}
+		
+		
+	var ss = "";
+	if (s=="SIGN")
+		ss = document.form1.button2.value;
+	else if (s=="CANCEL")
+		ss = document.form1.button3.value;
+	else {
+		window.alert("畫面有錯誤,請按[重整]!!");
+		return false;
+		}
+	 
+	if (window.confirm("確定要執行[" + ss + "]?")==true){
+		var YYYYMM=document.form1.YYYYMM.value;
+		
+		window.parent.frames["A_BODY"].location.href = 'PFGA8319.asp?SWITCH='+s+'&YYYYMM='+document.form1.YYYYMM.value+'&RPTKIND='+document.form1.selRPT.value;
+		window.parent.document.all.item("MAIN").rows="120,0,*,0";
+
+		
+		}
+}
+
+
+
+function butP_onclick()
+{
+
+ 
+   window.parent.frames["Q_BODY"].form1.option1.value='QP'
+   window.parent.frames["Q_BODY"].form1.submit();
+}
+
+function butN_onclick()
+{
+ 
+   window.parent.frames["Q_BODY"].form1.option1.value='QN'
+   window.parent.frames["Q_BODY"].form1.submit();
+}
+
+// ------------  當按離開時 ----------------------------------------
+function exit_onclick()
+{
+ 	window.parent.parent.PFAC0000.rows='*,9*';
+   	window.parent.parent.PFAC0002.cols='*,3*';
+    window.parent.location.href = 'PFAC0004.asp';
+   
+       if (window.parent.parent.PFAC0001.form1.subc.value == 1)
+     {
+        	window.parent.parent.PFAC0010.rows='0,100%';
+     } 
+    else  
+     {      
+   		;
+     }		
+
+}
+
+// ------------  當按關閉時 ----------------------------------------
+function close_window()
+{
+	parent.parent.close();
+}
+
+// ------------  當按重整時 ----------------------------------------
+function reload_onclick()
+{
+// 啟動原始狀態
+parent.location.reload();
+
+}
+
+
+function window_onload() {
+    window.parent.parent.PFAC0000.rows='1,*';
+   	window.parent.parent.PFAC0002.cols='1,*';
+
+    document.form1.YYYYMM.focus();
+    
+}
+
+function butPRN_onclick() {
+	document.form1.text9.value='P';
+	var YYYYMM=document.form1.YYYYMM.value;
+	if(YYYYMM==''){
+	   alert('請輸入結帳年月 例: 202204 ! ');
+	   document.form1.YYYYMM.focus();
+	   return;
+	}
+    //20230401
+	var TPERIOD="CM";
+	//alert(YYYYMM.substring(4,6));
+	if("<%=MID(GETYYMMDD,5,2)%>">="04" && YYYYMM.substring(4,6)=="03" && "<%=MID(GETYYMMDD,1,4)%>"==YYYYMM.substring(0,4)){
+	    TPERIOD="L4";
+	}
+	if("<%=MID(GETYYMMDD,5,2)%>">="05" && YYYYMM.substring(4,6)<="03" && "<%=MID(GETYYMMDD,1,4)%>">=YYYYMM.substring(0,4)){
+	    TPERIOD="LM";
+	}
+
+	//http://10.90.118.10/PAFOCUS/PFAC0373.ASP?SWITCH1=P&SDATE=20220630&MK=*&ACTNO=&TPERIOD=CM&HWIDTH=84&ACTITEM=&CLSCD=
+	//http://10.90.118.10/PAFOCUS/PFAC0373.ASP?SWITCH1=P&SDATE=20220701&MK=*&ACTNO=&TPERIOD=CM&HWIDTH=84&ACTITEM=&CLSCD=
+	window.parent.frames["PRN_BODY"].location.href='PFAC0373.ASP?SWITCH1=P&SDATE='+YYYYMM+'&MK=*&ACTNO=&TPERIOD='+TPERIOD+'&HWIDTH=84&FROMOTHER=YES&FORMID=8311&Company=<%=SESSION("varCompany")%>';
+	window.parent.document.all.item("MAIN").rows="120,0,0,*"; 	
+
+	
+}
+
+	
+function selRPT_onchange(kind)
+{
+
+  document.form1.optionflag.value= document.form1.txtkind.value + kind;
+  //window.parent.A_BODY.form1.optionflag.value=document.form1.optionflag.value;
+  //window.parent.Q_BODY.form1.optionflag.value=document.form1.optionflag.value;
+  
+  //window.parent.A_BODY.form1.submit();
+}
+
+
+function OnOff() 
+{          
+			
+		 
+	if('<%=Session("FORMQ")%>'=='1')
+	 {
+	   document.form1.butPRN.disabled=false; 
+	 }
+	else
+	 { 
+	   document.form1.butPRN.disabled=true; 
+	 }
+	if('<%=Session("FORMA")%>'=='1')
+	 {
+	   document.form1.button2.disabled=false; 
+	   document.form1.button3.disabled=false; 
+	 }
+	else
+	 { 
+	   //document.form1.button2.disabled=true; 
+	   document.form1.button3.disabled=true; 
+	 }
+	 
+}  
+
+
+// -->
+</script>
+<BODY  bgcolor=LightGoldenrodYellow  topmargin=0 LANGUAGE=javascript onload="return window_onload()">
+<form method="post" id="form1" name="form1">
+<table width="100%" align="center" cellspacing=0>
+	<tr  bgcolor=Pink>
+		<td width="25%" align="left"><%=Session("FormAspId")%>&nbsp;&nbsp;(<%=Session("UserName")%>)</td>
+		<td align="center"><font face="標楷體" size="5" color=Red><strong>資金日記表簽章作業</strong></font></td>
+		<td width="25%" align="right"><%=NOW%></td>
+	</tr>
+</table>
+<hr>
+<TABLE  border=1 cellPadding=0 cellSpacing=1 style="color: #0000FF; background-color: YELLOW" align=center>
+	<TR>
+		<TD style="WIDTH: 70px">報表類別:</TD>
+		<TD style="WIDTH: 160px">
+			<SELECT NAME="selRPT" style="font-size:14px;width:200px;font-weight:bold;text-align:left" onchange="return selRPT_onchange(this.value)">
+				<OPTION VALUE="A">日計表</OPTION>
+			</SELECT>
+		</TD>
+		<td align="center" bgcolor="blue" style="FONT-SIZE:13px;WIDTH: 80px" nowrap><font color="white" >結帳日期</font></td>
+		<td align=center valign=middle  >
+		<INPUT type="text" id=YYYYMM name=YYYYMM style="font-family:Times New Roman;FONT-SIZE:13px;font-weight:bold;WIDTH: 65px;text-align:left" maxlength=8 value="<%=YYYYMM%>">
+		</td>
+					<TD style="WIDTH: 60px" width=60><INPUT id=butPRN name=butPRN style="HEIGHT: 22px; WIDTH: 60px;color: #0000FF; background-color: yellow" type=button value="印表" language=javascript onclick="return butPRN_onclick()" accesskey=p></TD>
+					<TD ><INPUT id=button2 name=button2 style="WIDTH: 70px;color: #0000FF; background-color: YELLOW" type=button value="電子簽章" language=javascript onclick="return sign_onclick('SIGN')" ></TD>
+					<TD ><INPUT id=button3 name=button3 style="WIDTH: 70px;color: #0000FF; background-color: PINK" type=button value="簽章取消" language=javascript onclick="return sign_onclick('CANCEL')" ></TD>				
+					<TD style="WIDTH: 60px" width=60><INPUT id=button9 name=button9 style="HEIGHT: 22px; WIDTH: 60px;color: #0000FF; background-color: #00FF00" type=button value=重整 language=javascript onclick="return reload_onclick()"  ></TD>
+
+					<% IF (acpath <> "apapproval") THEN %>
+						<TD style="WIDTH: 60px" width=60><INPUT id=button8 name=button8 style="HEIGHT: 22px; WIDTH: 60px;color: #0000FF; background-color: #00FF00" type=button value=回主畫面 language=javascript onclick="return exit_onclick()"></TD>
+					<% ELSE %>
+						<TD style="WIDTH: 60px" width=60><INPUT id=button8 name=button8 style="HEIGHT: 22px; WIDTH: 60px;color: #0000FF; background-color: #00FF00" type=button value=關閉 language=javascript onclick="return close_window()"></TD>
+					<% END IF %>
+
+					<TD STYLE="WIDTH:60"><INPUT type="button" value="說明" id="btnHELP" name="btnHELP" style="WIDTH:100%;CURSOR:HELP;color: #0000FF; background-color:Seashell" LANGUAGE=javascript onclick="return help_onclick()" onmouseover="return oTBR_onmouseover(window.event.srcElement)" onmouseout="return oTBR_onmouseout(window.event.srcElement)" TITLE="開啟畫面使用說明視窗"></TD>
+					<TD STYLE="WIDTH:60"><INPUT type="submit" value="郵件內容" id="btnMAILTXT" name="btnMAILTXT" style="WIDTH:100%;CURSOR:HELP;color: #0000FF; background-color:Seashell" LANGUAGE=javascript onclick="return mailtext_onclick()"></TD>
+					<TD align=center valign=middle  ><INPUT type="text" id=staDate name=staDate style="font-family:Times New Roman;FONT-SIZE:13px;font-weight:bold;WIDTH: 65px;text-align:left" maxlength=8 value="<%=staDate%>"></TD> 
+					<TD align=center valign=middle style="font-weight:bold;WIDTH:10px;">~</TD>
+
+					<TD align=center valign=middle  ><INPUT type="text" id=endDate name=endDate style="font-family:Times New Roman;FONT-SIZE:13px;font-weight:bold;WIDTH: 65px;text-align:left" maxlength=8 value="<%=endDate%>"></TD>
+
+	</TR>
+</TABLE>
+
+<INPUT id=text9 name=text9 type = "hidden" style="HEIGHT: 22px; WIDTH: 68px" value=<%=EditFlag%>> 
+<INPUT id=text10 name=text10 type = "hidden" style="HEIGHT: 22px; WIDTH: 54px">
+<INPUT id=optionflag name=optionflag type = "hidden" style="HEIGHT: 22px; WIDTH: 68px" value=<%=optionflag%>> 
+<INPUT id=txtkind name=txtkind type = "hidden" style="HEIGHT: 22px; WIDTH: 68px" value=<%=kind%>> 
+</form>
+<textarea id="MAILTXT_DATA" style="display:none;"><%=MAILTXT%></textarea>
+<% If Request("btnMAILTXT") <> "" Then %>
+<script type="text/javascript">
+showMail();
+</script>
+<% End If %>
+	       <SCRIPT type="text/javascript">
+           <!--
+            // sever call client
+            OnOff();
+	       -->
+	      </script>
+	
+<% IF AAA <> "" THEN%>
+	<SCRIPT type="text/javascript">
+	<!--
+		alert("<%=AAA%>")
+	-->
+	</script>
+	
+<%END IF%>
+<TABLE  border=1 cellPadding=0 cellSpacing=1 style="color: #0000FF; background-color:Moccasin;font-size:16px;font-weight:bolder" align=center>
+	<TR style="background-color:blue;color:white">
+		<TD COLSPAN=10 Language=javascript onclick="return reload_onclick()" style="cursor:pointer">電子簽章完成狀況一覽表</TD>
+        </TR>
+<%DO WHILE NOT RSSIGN.EOF
+    IF RIGHT(RSSIGN("YYYYMMHD"),2)="99" THEN
+        I=0
+    ELSE
+        I=I+1
+    END IF
+    IF ERR.number<>0 THEN
+        EXIT DO
+    END IF%>
+	<TR NOWRAP align=center style="background-color:<%IF RIGHT(RSSIGN("YYYYMMHD"),2)="99" THEN%>Lavender;<%END IF%>">
+        <TD NOWRAP WIDTH="40PX" HEIGHT="24px"><%IF RIGHT(RSSIGN("YYYYMMHD"),2)="99" THEN%>NO.<%ELSE%><%=I%><%END IF%></TD>
+        <TD NOWRAP WIDTH="80PX" HEIGHT="24px"><%IF RIGHT(RSSIGN("YYYYMMHD"),2)="99" THEN%>結帳日期<%ELSE%><%=RSSIGN("YYYYMMHD")%><%END IF%></TD>        
+        <TD NOWRAP WIDTH="100PX" HEIGHT="24px" style="<%IF RIGHT(RSSIGN("YYYYMMHD"),2)<>"99" THEN%>text-align:center;<%END IF%>"><%IF RIGHT(RSSIGN("YYYYMMHD"),2)="99" THEN%>報表<%ELSE%><%=RSSIGN("FORMNAME")%><%END IF%></TD>
+        <%IF RSSIGN("SF1") <> "" THEN%><TD NOWRAP WIDTH="120px" HEIGHT="24px" <%IF RIGHT(RSSIGN("SF1"),3)="未完成" THEN%>STYLE="COLOR:RED"<%END IF%>><%=RSSIGN("SF1")%></TD><%END IF%>
+        <%IF RSSIGN("SF2") <> "" THEN%><TD NOWRAP WIDTH="120px" HEIGHT="24px" <%IF RIGHT(RSSIGN("SF2"),3)="未完成" THEN%>STYLE="COLOR:RED"<%END IF%>><%=RSSIGN("SF2")%></TD><%END IF%>
+        <%IF RSSIGN("SF3") <> "" THEN%><TD NOWRAP WIDTH="120px" HEIGHT="24px" <%IF RIGHT(RSSIGN("SF3"),3)="未完成" THEN%>STYLE="COLOR:RED"<%END IF%>><%=RSSIGN("SF3")%></TD><%END IF%>
+        <%IF RSSIGN("SF4") <> "" THEN%><TD NOWRAP WIDTH="120px" HEIGHT="24px" <%IF RIGHT(RSSIGN("SF4"),3)="未完成" THEN%>STYLE="COLOR:RED"<%END IF%>><%=RSSIGN("SF4")%></TD><%END IF%>
+        </TR>
+<%  RSSIGN.MOVENEXT
+LOOP %>
+</TABLE>
+</BODY>
+</HTML>
+<!--#include file="PFACHELP.ASP"-->

@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,9 +14,9 @@ serve(async (req) => {
   }
 
   try {
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not configured');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
     }
 
     const { imageData, filename } = await req.json();
@@ -125,7 +125,7 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 【bbox 座標】0-1 正規化座標`;
 
     const requestBody = {
-      model: 'gpt-4o',
+      model: 'openai/gpt-5',
       messages: [
         {
           role: 'system',
@@ -157,10 +157,10 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
     let lastErrorText = '';
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      response = await fetch("https://api.openai.com/v1/chat/completions", {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),

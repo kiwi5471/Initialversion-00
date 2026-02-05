@@ -16,6 +16,7 @@ export interface FileProcessingResult {
   lineItems: LineItem[];
   ocrBlocks: OCRBlock[];
   metadata?: OCRMetadata;
+  usage?: any;
   error?: string;
 }
 

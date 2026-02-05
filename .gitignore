@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Security
+API_KEY.txt
+public/api_config.json
+OCR_LOG.txt
+uploaded_files/
+.env
+.env.local
+.env.*.local
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

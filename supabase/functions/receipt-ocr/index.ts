@@ -125,7 +125,7 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 【bbox 座標】0-1 正規化座標`;
 
     const requestBody = {
-      model: 'openai/gpt-5',
+      model: 'google/gemini-2.5-pro',
       messages: [
         {
           role: 'system',
@@ -147,7 +147,8 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
           ]
         }
       ],
-      max_completion_tokens: 4096,
+      temperature: 0.1,
+      max_tokens: 4096,
     };
 
     // Retry OpenAI calls on 429 to reduce client-visible failures.

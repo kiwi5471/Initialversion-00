@@ -1,0 +1,4 @@
+{
+  "apiKey": "請在此處填入您的 OpenAI API Key",
+  "model": "gpt-4o"
+}

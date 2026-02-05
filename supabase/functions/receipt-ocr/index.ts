@@ -148,7 +148,7 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
         }
       ],
       temperature: 0.1,
-      max_tokens: 4096,
+      max_completion_tokens: 4096,
     };
 
     // Retry OpenAI calls on 429 to reduce client-visible failures.

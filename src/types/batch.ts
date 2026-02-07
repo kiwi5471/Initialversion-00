@@ -6,6 +6,7 @@ export interface UploadedFileItem {
   imageUrl: string;
   file: File;
   pageNumber?: number;
+  serverPath?: string;
 }
 
 export interface FileProcessingResult {
@@ -18,6 +19,7 @@ export interface FileProcessingResult {
   metadata?: OCRMetadata;
   usage?: any;
   error?: string;
+  serverPath?: string;
 }
 
 // Exported LineItem with simplified fields

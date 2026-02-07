@@ -64,6 +64,11 @@ This project is built with:
 
 Simply open [Lovable](https://lovable.dev/projects/31fb8058-1029-4da3-89ec-eea0c4c081a0) and click on Share -> Publish.
 
+## How do I store uploads on my own server (ASP + VBScript)?
+
+This repo includes a Classic ASP upload handler under `server/upload/upload.asp` that saves files to `server/uploads`.
+See `server/README.md` for IIS setup, endpoint details, and configuration notes.
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!

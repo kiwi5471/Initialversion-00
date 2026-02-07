@@ -255,6 +255,7 @@ export default function ReceiptRecognition() {
       id: uf.id,
       fileName: uf.fileName,
       imageUrl: uf.imageUrl,
+      serverPath: uf.serverPath,
       status: 'pending' as const,
       lineItems: [],
       ocrBlocks: [],
@@ -485,7 +486,7 @@ export default function ReceiptRecognition() {
           tax_amount: item.input_tax,
           amount_with_tax: item.amount_with_tax,
           scanned_filename: f.fileName,
-          file_path: f.imageUrl,
+          file_path: f.serverPath ?? f.imageUrl,
           user_id: '',
           username: '',
         };

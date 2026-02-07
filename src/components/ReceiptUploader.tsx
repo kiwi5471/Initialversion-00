@@ -14,6 +14,35 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
   const [isDragOver, setIsDragOver] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadEndpoint = import.meta.env.VITE_UPLOAD_ENDPOINT ?? "/upload/upload.asp";
+
+  const uploadToServer = useCallback(async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(uploadEndpoint, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        console.error("[Upload] Server upload failed:", response.statusText);
+        return null;
+      }
+
+      const payload = await response.json();
+      if (!payload?.success) {
+        console.error("[Upload] Server upload error:", payload?.error);
+        return null;
+      }
+
+      return payload.serverPath ?? null;
+    } catch (error) {
+      console.error("[Upload] Server upload exception:", error);
+      return null;
+    }
+  }, [uploadEndpoint]);
 
   const processFiles = useCallback(
     async (files: File[]) => {
@@ -33,23 +62,27 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
             console.log('[Upload] Detected PDF, converting...');
             const pages = await convertPDFToImages(file);
             console.log('[Upload] PDF converted, pages:', pages.length);
-            pages.forEach((page) => {
+            for (const page of pages) {
+              const serverPath = await uploadToServer(page.file);
               uploadedFiles.push({
                 id: `${file.name}-page-${page.pageNumber}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 fileName: `${file.name} (第 ${page.pageNumber} 頁)`,
                 imageUrl: page.imageUrl,
                 file: page.file,
                 pageNumber: page.pageNumber,
+                serverPath,
               });
-            });
+            }
           } else if (isImage(file)) {
             console.log('[Upload] Detected image');
             const url = URL.createObjectURL(file);
+            const serverPath = await uploadToServer(file);
             uploadedFiles.push({
               id: `${file.name}-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
               fileName: file.name,
               imageUrl: url,
               file: file,
+              serverPath,
             });
           }
         }
@@ -65,7 +98,7 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
         setIsConverting(false);
       }
     },
-    [onFilesAdd]
+    [onFilesAdd, uploadToServer]
   );
 
   const handleDrop = useCallback(

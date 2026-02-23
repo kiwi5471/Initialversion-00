@@ -1,15 +1,18 @@
-import { useCallback, useState } from "react";
+﻿import { useCallback, useState } from "react";
 import { Upload, FileText, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, safeJsonParse } from "@/lib/utils";
 import { getAppConfig } from "@/lib/config";
+import { ExpenseEntry } from "@/types/invoice";
+import { isPDF, convertPDFToImages } from "@/lib/pdfUtils";
 
 interface FileUploaderProps {
   onFilesProcessed: (entries: ExpenseEntry[]) => void;
   isProcessing: boolean;
   setIsProcessing: (value: boolean) => void;
+  model?: string;
 }
 
 interface SelectedFile {
@@ -26,10 +29,10 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-const recognizeWithGPT = async (file: File): Promise<{ entries: ExpenseEntry[], usage: any }> => {
+const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ entries: ExpenseEntry[], usage: any }> => {
   const config = await getAppConfig();
   const apiKey = config.apiKey;
-  const model = config.model;
+  const model = selectedModel || config.model;
 
   if (!apiKey) {
     throw new Error("找不到 API Key，請檢查 public/api_config.json 或環境變數");
@@ -39,6 +42,15 @@ const recognizeWithGPT = async (file: File): Promise<{ entries: ExpenseEntry[], 
   const base64Data = base64Image.split(',')[1];
 
   console.log(`[OCR] Sending ${file.name} to ${model}...`);
+
+  // o 系列模型處理
+  const isReasoningModel = model.startsWith("o1") || model.startsWith("o3");
+  const systemRole = isReasoningModel ? "developer" : "system";
+
+  // o3-mini 不支援 Vision
+  if (model.includes("o3-mini")) {
+    throw new Error("o3-mini 模型目前不支援圖片辨識 (Vision)，請改用 gpt-4o 或 o1。");
+  }
 
   const response = await fetch('/api-openai/v1/chat/completions', {
     method: 'POST',
@@ -50,22 +62,41 @@ const recognizeWithGPT = async (file: File): Promise<{ entries: ExpenseEntry[], 
       model: model,
       messages: [
         {
-          role: "system",
-          content: `你是一個專業的台灣財務憑證 (GUI/手寫收據) 辨識專家。針對「三聯式手寫發票」，請遵循以下最高優先級規則：
+          role: systemRole,
+          content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
 
-1. 賣方統編 (supplier_tax_id)：
-   - ⚠️ 嚴禁抓取左上角或方框中手寫的「買受人統一編號」(如圖中的 12345678)。
-   - ⚠️ 必須尋找「藍色或紅色印章（統一發票專用章）」內部的 8 位數字 (例如圖中的 50996831)。
-2. 金額辨識 (三聯式表格定位)：
-   - 總計 (amount_inclusive_tax)：尋找表格最下方「總計」橫線旁的數字 (例如圖中的 210,000)。
-   - 營業稅 (tax_amount)：尋找「營業稅」橫線旁的數字 (例如圖中的 10,000)。
-   - 銷售額 (amount_exclusive_tax)：尋找「銷售額合計」橫線旁的數字 (例如圖中的 200,000)。
-   - 邏輯校對：必須滿足【銷售額 + 營業稅 = 總計】。
-3. 日期校正：識別「中華民國」年份 (例如 112) 並轉為西元 (2023)。
-4. 發票號碼：尋找左上角的大寫英文字軌 + 8 位數字 (例如 RY 33724453)。
+### 核心辨識邏輯：
+1. **賣方資訊 (Seller Info)**：
+   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
+   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
+     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
+2. **日期 (Date Parsing)**：
+   - 格式必須為 YYYY-MM-DD。
+   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
+   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
+3. **發票號碼 (Invoice Number)**：
+   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
+4. **金額計算 (Amounts)**：
+   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
+   - **判定含稅/未稅**：
+     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
+     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
+     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
+   - **稅額 (tax_amount) 邏輯**：
+     - 優先讀取發票上明列的「營業稅」。
+     - 若未明列且為一般應稅發票，請從總額倒算：[tax_amount = round(total_amount / 1.05 * 0.05)]。
+     - 若為免稅項目，則為 0。
+5. **細項 (Line Items) 處理規則**：
+   - **簡化彙整規則**：若發票有多個細項明細（如超市、餐飲、多項雜物），**請將所有品項彙整為一筆代表性項目**即可。
+   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別（例如：「生活用品等一式」、「餐飲等一式」、「辦公用品等一式」）。
+   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
 
-請僅回傳 JSON 物件，結構如下：
-{"invoices": [{"thought_process": "我在藍色印章中看到賣方統編為 50996831，總計欄位看到 210,000", "supplier_tax_id": "...", "invoice_number": "...", "supplier_name": "...", "invoice_date": "...", "amount_inclusive_tax": 0, "tax_amount": 0, "amount_exclusive_tax": 0, "item_description": "..."}]}`
+### 思考過程 (Thought Process)：
+在輸出 JSON 前，請先在 "thought_process" 中簡述分析邏輯。
+
+### 輸出規範：
+請僅回傳 JSON 物件。
+{"invoices": [{"thought_process": "...", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}`
         },
         {
           role: "user",
@@ -83,53 +114,78 @@ const recognizeWithGPT = async (file: File): Promise<{ entries: ExpenseEntry[], 
           ]
         }
       ],
-      response_format: { type: "json_object" }
+      ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
     })
   });
 
   if (!response.ok) {
+    let detail = "";
     const errText = await response.text();
-    console.error(`[OCR] API Error: ${response.status}`, errText);
-    throw new Error(`API 錯誤: ${response.status}`);
+    try {
+      const errRes = JSON.parse(errText);
+      detail = errRes.error?.message || errText;
+    } catch {
+      detail = errText;
+    }
+    console.error(`[OCR] API Error: ${response.status}`, detail);
+    throw new Error(`API 錯誤 ${response.status}: ${detail.slice(0, 100)}`);
   }
 
   const result = await response.json();
-  const data = JSON.parse(result.choices[0].message.content);
+  const data = safeJsonParse(result.choices[0].message.content);
   const invoiceList = data.invoices || [data];
   const today = new Date().toISOString().split('T')[0];
 
-  const entries = invoiceList.map((content: any) => ({
-    id: crypto.randomUUID(),
-    filename: file.name,
-    supplier_tax_id: content.supplier_tax_id || "",
-    supplier_name: content.supplier_name || "",
-    invoice_date: content.invoice_date || today,
-    item_description: content.item_description || "",
-    amount_exclusive_tax: Number(content.amount_exclusive_tax) || 0,
-    tax_amount: Number(content.tax_amount) || 0,
-    amount_inclusive_tax: Number(content.amount_inclusive_tax) || 0,
-    page_number: 1,
-    output_type: "員工",
-    payment_method: "電匯",
-    expense_date: today,
-    content: content.item_description || "",
-    quantity: 1,
-    unit_price: Number(content.amount_inclusive_tax) || 0,
-    currency: "TWD",
-    amount: Number(content.amount_inclusive_tax) || 0,
-    notes: `發票號碼: ${content.invoice_number || "無"}`,
-    debit_account: "旅費",
-    debit_item: "",
-    debit_summary: content.item_description || "",
-    credit_account: "應付帳款",
-    credit_item: "",
-    credit_summary: "",
-  }));
+  const processedEntries: ExpenseEntry[] = [];
 
-  return { entries, usage: result.usage };
+  for (const inv of invoiceList) {
+    // 稅額保護邏輯
+    let finalTaxAmount = Number(inv.tax_amount) || 0;
+    const totalAmt = Number(inv.total_amount) || 0;
+    if (finalTaxAmount === 0 && totalAmt > 0) {
+      finalTaxAmount = Math.round(totalAmt / 1.05 * 0.05);
+    }
+
+    const items = inv.items || [];
+    if (items.length === 0) {
+      items.push({ description: "合計項目", amount: totalAmt });
+    }
+
+    for (const item of items) {
+      processedEntries.push({
+        id: crypto.randomUUID(),
+        filename: file.name,
+        supplier_tax_id: inv.supplier_tax_id || "",
+        supplier_name: inv.supplier_name || "",
+        invoice_date: inv.invoice_date || today,
+        item_description: item.description || "票據明細",
+        amount_exclusive_tax: (item.amount || totalAmt) - finalTaxAmount,
+        tax_amount: finalTaxAmount,
+        amount_inclusive_tax: item.amount || totalAmt,
+        page_number: 1,
+        output_type: "員工",
+        payment_method: "電匯",
+        expense_date: inv.invoice_date || today,
+        content: item.description || "票據報銷",
+        quantity: 1,
+        unit_price: item.amount || totalAmt,
+        currency: "TWD",
+        amount: item.amount || totalAmt,
+        notes: inv.thought_process || `發票號碼: ${inv.invoice_number || "無"}`,
+        debit_account: "旅費",
+        debit_item: "",
+        debit_summary: item.description || "",
+        credit_account: "應付帳款",
+        credit_item: "",
+        credit_summary: "",
+      });
+    }
+  }
+
+  return { entries: processedEntries, usage: result.usage };
 };
 
-export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing }: FileUploaderProps) => {
+export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }: FileUploaderProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [isConvertingPDF, setIsConvertingPDF] = useState(false);
@@ -259,7 +315,7 @@ export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing }
           }).catch(err => console.error('備份檔案失敗:', err));
         });
 
-        const { entries, usage } = await recognizeWithGPT(item.file);
+        const { entries, usage } = await recognizeWithGPT(item.file, model);
         allEntries.push(...entries);
         if (usage) {
           totalUsage.prompt_tokens += usage.prompt_tokens || 0;

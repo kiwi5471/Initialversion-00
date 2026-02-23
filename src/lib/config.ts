@@ -15,7 +15,7 @@ export const getAppConfig = async (): Promise<AppConfig> => {
       const config = await response.json();
       cachedConfig = {
         apiKey: config.apiKey || import.meta.env.VITE_GPT_API_KEY || "",
-        model: config.model || "gpt-5"
+        model: config.model || "gpt-4o"
       };
     }
   } catch (error) {

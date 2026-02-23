@@ -31,6 +31,9 @@ export interface OCRMetadata {
   tax_id?: string;
   date?: string;
   total_amount?: number;
+  supplier_name?: string;
+  supplier_tax_id?: string;
+  invoice_date?: string;
 }
 
 export const DOCUMENT_CATEGORIES = [

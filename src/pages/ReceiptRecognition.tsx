@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+﻿import { useState, useCallback, useMemo } from "react";
 import { LineItem, OCRBlock } from "@/types/recognition";
 import { FileProcessingResult, UploadedFileItem, ExportData, ExportedLineItem } from "@/types/batch";
 import { ReceiptUploader } from "@/components/ReceiptUploader";
@@ -9,10 +9,15 @@ import { BatchFileList } from "@/components/BatchFileList";
 import { ExportButtons } from "@/components/ExportButtons";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { RotateCcw, Play, Loader2 } from "lucide-react";
+import { RotateCcw, Play, Loader2, Terminal } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getAppConfig } from "@/lib/config";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { safeJsonParse } from "@/lib/utils";
 
 type Step = 'upload' | 'result';
 
@@ -31,6 +36,143 @@ export default function ReceiptRecognition() {
   const [activeBlockIds, setActiveBlockIds] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [selectedModel, setSelectedModel] = useState("gpt-4o");
+
+  // Developer Mode States
+  const [mode, setMode] = useState<"user" | "dev">("user");
+  const [devConfig, setDevConfig] = useState({
+    folderPath: "",
+    iterations: 1,
+  });
+
+  const runDevProcess = async () => {
+    if (!devConfig.folderPath) {
+      toast({ title: "請輸入資料夾路徑", variant: "destructive" });
+      return;
+    }
+
+    setIsProcessing(true);
+    setProgress(0);
+    
+    try {
+      const scanRes = await fetch("http://127.0.0.1:3001/scan-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderPath: devConfig.folderPath }),
+      });
+
+      if (!scanRes.ok) {
+        const err = await scanRes.json();
+        throw new Error(err.error || "掃描失敗");
+      }
+
+      const { files } = await scanRes.json();
+      if (files.length === 0) {
+        toast({ title: "資料夾內無支援的檔案", description: "支援: pdf, jpg, jpeg, png" });
+        setIsProcessing(false);
+        return;
+      }
+
+      const config = await getAppConfig();
+      const startTime = Date.now();
+
+      for (let i = 0; i < devConfig.iterations; i++) {
+        for (let j = 0; j < files.length; j++) {
+          const fileData = files[j];
+          const fileStartTime = Date.now();
+          
+          if (fileData.isActualPdf) {
+            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: Skipped (Original PDF not supported in DevMode) | Took: 0s`;
+            console.warn(logMsg);
+            fetch("http://127.0.0.1:3001/log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: logMsg })
+            }).catch(() => {});
+            continue;
+          }
+
+          try {
+            if (selectedModel.includes("o3-mini")) {
+              throw new Error("o3-mini 不支援圖片辨識，請切換至 gpt-4o 或 o1");
+            }
+            const isReasoningModel = selectedModel.startsWith("o1") || selectedModel.startsWith("o3");
+            const systemRole = isReasoningModel ? "developer" : "system";
+
+            const resp = await fetch("/api-openai/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${config.apiKey}`
+              },
+              body: JSON.stringify({
+                model: selectedModel,
+                messages: [
+                  { role: systemRole, content: "你是一個專業的 OCR 辨識助手。請僅回傳 JSON 格式。" },
+                  { role: "user", content: [
+                    { type: "text", text: "請辨識這張圖片內容並回傳 JSON 格式結果。" },
+                    { type: "image_url", image_url: { url: fileData.base64Data } }
+                  ]}
+                ],
+                ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
+              })
+            });
+
+            const duration = (Date.now() - fileStartTime) / 1000;
+            let statusText = resp.ok ? "Success" : `Error ${resp.status}`;
+            let detail = null;
+            
+            if (!resp.ok) {
+              const errBody = await resp.json().catch(() => ({}));
+              statusText = `Error ${resp.status}: ${errBody.error?.message || "Unknown Error"}`;
+            } else {
+              const result = await resp.json();
+              const content = result.choices?.[0]?.message?.content;
+              if (!content) {
+                statusText = "Empty Result";
+              } else {
+                try {
+                  detail = safeJsonParse(content);
+                } catch (e) {
+                  detail = content;
+                }
+              }
+            }
+
+            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: ${statusText} | Took: ${duration}s`;
+            console.log(logMsg);
+
+            fetch("http://127.0.0.1:3001/log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: logMsg, detail: detail })
+            }).catch(() => {});
+
+          } catch (e: any) {
+            const duration = (Date.now() - fileStartTime) / 1000;
+            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: Failed (${e.message}) | Took: ${duration}s`;
+            fetch("http://127.0.0.1:3001/log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: logMsg })
+            }).catch(() => {});
+          }
+          
+          setProgress(Math.round(((i * files.length + (j + 1)) / (devConfig.iterations * files.length)) * 100));
+        }
+      }
+
+      const totalDuration = (Date.now() - startTime) / 1000;
+      toast({ title: "開發者模式執行完畢", description: `總計耗時 ${totalDuration}s` });
+
+    } catch (error: any) {
+      toast({ title: "執行失敗", description: error.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+      setProgress(0);
+    }
+  };
 
   const activeFile = useMemo(
     () => processedFiles.find(f => f.id === activeFileId) || null,
@@ -57,7 +199,7 @@ export default function ReceiptRecognition() {
   ): Promise<FileProcessingResult> => {
     const config = await getAppConfig();
     const apiKey = config.apiKey;
-    const model = config.model;
+    const model = selectedModel || config.model;
 
     if (!apiKey) {
       throw new Error("找不到 API Key，請檢查 public/api_config.json 或環境變數");
@@ -72,6 +214,13 @@ export default function ReceiptRecognition() {
 
         console.log(`[OCR] Sending batch file ${file.name} to ${model}...`);
 
+        if (model.includes("o3-mini")) {
+          throw new Error("o3-mini 不支援圖片辨識，請改用 gpt-4o 或 o1");
+        }
+
+        const isReasoningModel = model.startsWith("o1") || model.startsWith("o3");
+        const systemRole = isReasoningModel ? "developer" : "system";
+
         const response = await fetch('/api-openai/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -82,7 +231,7 @@ export default function ReceiptRecognition() {
             model: model,
             messages: [
               {
-                role: "system",
+                role: systemRole,
                 content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
 
 ### 核心辨識邏輯：
@@ -139,20 +288,27 @@ export default function ReceiptRecognition() {
                 ]
               }
             ],
-            response_format: { type: "json_object" }
+            ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
           })
         });
 
         if (!response.ok) {
+          let detail = "";
           const errText = await response.text();
-          console.error(`[OCR] Batch API Error: ${response.status}`, errText);
-          throw new Error(`API 錯誤: ${response.status}`);
+          try {
+            const errBody = JSON.parse(errText);
+            detail = errBody.error?.message || errText;
+          } catch {
+            detail = errText;
+          }
+          console.error(`[OCR] Batch API Error: ${response.status}`, detail);
+          throw new Error(`API 錯誤 ${response.status}: ${detail.slice(0, 100)}`);
         }
 
         const result = await response.json();
         console.log(`[OCR] Received response for batch item ${file.name}`, result.usage);
         
-        const data = JSON.parse(result.choices[0].message.content);
+        const data = safeJsonParse(result.choices[0].message.content);
         const invoiceList = data.invoices || [data]; // 支援多發票或單發票格式
 
         const allLineItems: any[] = [];
@@ -503,37 +659,131 @@ export default function ReceiptRecognition() {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto py-8 space-y-6 max-w-2xl">
-          <div className="space-y-2 text-center">
-            <h1 className="text-3xl font-bold text-foreground">
-              票據憑證辨識系統
-            </h1>
-            <p className="text-muted-foreground">
-              上傳憑證圖片或 PDF，AI 自動批次擷取會計資料
-            </p>
+          <div className="flex justify-between items-start">
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold text-foreground">
+                票據憑證辨識系統
+              </h1>
+              <p className="text-muted-foreground">
+                上傳憑證圖片或 PDF，AI 自動批次擷取會計資料
+              </p>
+            </div>
+            
+            <div className="flex flex-col gap-2 items-end">
+              <div className="bg-muted p-2 rounded-lg border border-border scale-90 origin-right">
+                <RadioGroup 
+                  value={mode} 
+                  onValueChange={(v) => setMode(v as any)}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="user" id="user-mode" />
+                    <Label htmlFor="user-mode" className="text-xs cursor-pointer">一般</Label>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="dev" id="dev-mode" />
+                    <Label htmlFor="dev-mode" className="text-xs cursor-pointer flex items-center gap-1 text-orange-600">
+                      <Terminal className="h-3 w-3" /> 開發
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div className="bg-muted p-2 rounded-lg border border-border scale-90 origin-right">
+                <RadioGroup 
+                  value={selectedModel} 
+                  onValueChange={setSelectedModel}
+                  className="flex gap-3"
+                >
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="gpt-4o" id="m-gpt-4o" />
+                    <Label htmlFor="m-gpt-4o" className="text-xs cursor-pointer">4o</Label>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="gpt-4o-mini" id="m-4o-mini" />
+                    <Label htmlFor="m-4o-mini" className="text-xs cursor-pointer">Mini</Label>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="o1" id="m-o1" />
+                    <Label htmlFor="m-o1" className="text-xs cursor-pointer font-bold text-purple-600" title="支援圖片辨識">o1</Label>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <RadioGroupItem value="o3-mini" id="m-o3" />
+                    <Label htmlFor="m-o3" className="text-xs cursor-pointer text-indigo-600 opacity-50" title="注意：o3-mini 目前不支援圖片辨識">o3 (不支圖)</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            </div>
           </div>
 
-          <Card className="p-6 shadow-lg">
-            <ReceiptUploader onFilesAdd={handleFilesAdd} />
-          </Card>
+          {mode === "dev" ? (
+            <Card className="p-6 shadow-lg border-2 border-orange-200 bg-orange-50/10 space-y-4">
+              <div className="flex flex-col gap-4">
+                <div className="space-y-2">
+                  <Label>本機資料夾路徑 (例如: D:\Invoices\Test)</Label>
+                  <Input 
+                    placeholder="請輸入完整路徑" 
+                    value={devConfig.folderPath}
+                    onChange={(e) => setDevConfig({...devConfig, folderPath: e.target.value})}
+                  />
+                </div>
+                <div className="flex gap-4 items-end">
+                  <div className="w-24 space-y-2">
+                    <Label>辨識次數</Label>
+                    <Input 
+                      type="number" 
+                      min="1" 
+                      value={devConfig.iterations}
+                      onChange={(e) => setDevConfig({...devConfig, iterations: parseInt(e.target.value) || 1})}
+                    />
+                  </div>
+                  <Button 
+                    onClick={runDevProcess} 
+                    disabled={isProcessing}
+                    className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+                    執行壓力測試
+                  </Button>
+                </div>
+              </div>
+              
+              {isProcessing && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-orange-600 font-medium">測試中...</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <Progress value={progress} className="h-1.5 bg-orange-100" />
+                </div>
+              )}
+            </Card>
+          ) : (
+            <>
+              <Card className="p-6 shadow-lg">
+                <ReceiptUploader onFilesAdd={handleFilesAdd} />
+              </Card>
 
-          <Card className="p-6 shadow-lg">
-            <UploadFileList
-              files={uploadedFiles}
-              onRemoveFile={handleRemoveFile}
-            />
-          </Card>
+              <Card className="p-6 shadow-lg">
+                <UploadFileList
+                  files={uploadedFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
+              </Card>
 
-          {uploadedFiles.length > 0 && (
-            <div className="flex justify-center">
-              <Button
-                size="lg"
-                onClick={handleStartRecognition}
-                className="gap-2 px-8"
-              >
-                <Play className="w-5 h-5" />
-                開始辨識 ({uploadedFiles.length} 個檔案)
-              </Button>
-            </div>
+              {uploadedFiles.length > 0 && (
+                <div className="flex justify-center">
+                  <Button
+                    size="lg"
+                    onClick={handleStartRecognition}
+                    className="gap-2 px-8"
+                  >
+                    <Play className="w-5 h-5" />
+                    開始辨識 ({uploadedFiles.length} 個檔案)
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -9,8 +9,8 @@ export const getAppConfig = async (): Promise<AppConfig> => {
   if (cachedConfig) return cachedConfig;
 
   try {
-    // 優先從 public/api_config.json 抓取，方便外部人員修改而不需重新編譯
-    const response = await fetch('/api_config.json');
+    // 使用相對路徑，確保在子目錄也能抓到
+    const response = await fetch('api_config.json');
     if (response.ok) {
       const config = await response.json();
       cachedConfig = {
@@ -31,4 +31,8 @@ export const getAppConfig = async (): Promise<AppConfig> => {
   }
 
   return cachedConfig;
+};
+
+export const getOpenAIApiBase = () => {
+  return import.meta.env.DEV ? "/api-openai" : "https://api.openai.com";
 };

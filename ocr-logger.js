@@ -16,11 +16,11 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 const server = http.createServer((req, res) => {
   // Handle CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(200);
+    res.writeHead(204);
     res.end();
     return;
   }
@@ -40,9 +40,18 @@ const server = http.createServer((req, res) => {
           const { message, detail } = data;
           let logEntry = `[${timestamp}] ${message}\n`;
           
-          if (detail) {
-            logEntry += `>>> 辨識結果明細:\n${typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)}\n`;
-            logEntry += `================================================================\n`;
+          if (detail && typeof detail === 'object') {
+            // 結構化欄位格式化輸出
+            const fields = ['檔案','耗時秒','類別','廠商','統編','日期','發票號碼','含稅金額','稅額'];
+            fields.forEach(f => {
+              if (detail[f] !== undefined && detail[f] !== '') {
+                logEntry += `  ${f}: ${detail[f]}\n`;
+              }
+            });
+            logEntry += `----------------------------------------------------------------\n`;
+          } else if (detail) {
+            logEntry += `  ${typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)}\n`;
+            logEntry += `----------------------------------------------------------------\n`;
           }
           
           fs.appendFileSync(LOG_FILE, logEntry);
@@ -53,21 +62,13 @@ const server = http.createServer((req, res) => {
         else if (req.url === '/save-file') {
           const { fileName, base64Data } = data;
           
-          const timestamp = new Date().toISOString().substring(5).replace(/[:.]/g, '-');
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           
-          let finalFileName = "";
-          if (fileName.toLowerCase().includes('.pdf (第') && fileName.includes('頁)')) {
-            // 將 .pdf 移除，並在最後加上 .png，因為這些是轉換後的頁面圖片
-            const cleanBaseName = fileName.replace(/\.pdf\s*/i, '');
-            finalFileName = `${timestamp}_${cleanBaseName}.png`;
-          } else {
-            const ext = path.extname(fileName);
-            if (!ext) {
-              finalFileName = `${timestamp}_${fileName}.png`;
-            } else {
-              finalFileName = `${timestamp}_${fileName}`;
-            }
-          }
+          // 直接以 原始檔名 保留副檔名，加時間戳記前綴
+          const ext = path.extname(fileName);
+          const finalFileName = ext
+            ? `${timestamp}_${fileName}`
+            : `${timestamp}_${fileName}.bin`;
 
           const filePath = path.join(UPLOAD_DIR, finalFileName);
           
@@ -143,7 +144,7 @@ const server = http.createServer((req, res) => {
 });
 
 const PORT = 3001;
-const HOST = '0.0.0.0';
+const HOST = '127.0.0.1';
 server.listen(PORT, HOST, () => {
-  console.log(`效能日誌伺服器已啟動: http://localhost:${PORT}`);
+  console.log(`效能日誌伺服器已啟動：http://${HOST}:${PORT}`);
 });

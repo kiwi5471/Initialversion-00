@@ -1,16 +1,27 @@
 import { useCallback, useState, useRef } from "react";
 import { Loader2, FileText, Image as ImageIcon, Upload } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { isPDF, isImage, convertPDFToImages } from "@/lib/pdfUtils";
+import { cn, getURLUserInfo, getApiBase } from "@/lib/utils";
+import { isPDF, isImage, convertPDFToImages, splitPDFIntoPages } from "@/lib/pdfUtils";
 import { UploadedFileItem } from "@/types/batch";
 import { Button } from "@/components/ui/button";
 
 interface ReceiptUploaderProps {
   onFilesAdd: (files: UploadedFileItem[]) => void;
   disabled?: boolean;
+  model?: string;
 }
 
-export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) {
+// Convert Uint8Array to base64 string (chunked to avoid stack overflow on large files)
+const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
+
+export function ReceiptUploader({ onFilesAdd, disabled, model }: ReceiptUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -31,12 +42,35 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
           
           if (isPDF(file)) {
             console.log('[Upload] Detected PDF, converting...');
+
+            // 將 PDF 拆頁，每頁各自上傳一個單頁 PDF 到伺服器
+            splitPDFIntoPages(file).then(pages => {
+              const apiBase = getApiBase();
+              const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
+              const userInfo = getURLUserInfo();
+              const ext = '.pdf';
+              const baseName = file.name.toLowerCase().endsWith('.pdf')
+                ? file.name.slice(0, -4)
+                : file.name;
+              pages.forEach(({ pageNumber, pdfBytes }) => {
+                const pageFileName = `${baseName} (第 ${pageNumber} 頁)${ext}`;
+                const rawBase64 = uint8ArrayToBase64(pdfBytes);
+                fetch(endpoint, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fileName: pageFileName, base64Data: rawBase64, ...userInfo, model: model || '' }),
+                }).catch(err => console.error(`PDF page ${pageNumber} upload failed:`, err));
+              });
+            }).catch(err => console.error('PDF split failed:', err));
+
             const pages = await convertPDFToImages(file);
             console.log('[Upload] PDF converted, pages:', pages.length);
             pages.forEach((page) => {
+              const ext = file.name.includes('.') ? '.' + file.name.split('.').pop() : '';
+              const baseName = ext ? file.name.slice(0, -ext.length) : file.name;
               uploadedFiles.push({
                 id: `${file.name}-page-${page.pageNumber}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                fileName: `${file.name} (第 ${page.pageNumber} 頁)`,
+                fileName: `${baseName} (第 ${page.pageNumber} 頁)${ext}`,
                 imageUrl: page.imageUrl,
                 file: page.file,
                 pageNumber: page.pageNumber,
@@ -65,7 +99,7 @@ export function ReceiptUploader({ onFilesAdd, disabled }: ReceiptUploaderProps) 
         setIsConverting(false);
       }
     },
-    [onFilesAdd]
+    [onFilesAdd, model]
   );
 
   const handleDrop = useCallback(

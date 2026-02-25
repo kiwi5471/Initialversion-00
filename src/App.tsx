@@ -14,7 +14,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter basename="/PAFOCUS/ocr">
         <Routes>
           <Route path="/" element={<ReceiptRecognition />} />
           <Route path="/expense" element={<Index />} />

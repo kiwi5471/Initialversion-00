@@ -34,6 +34,7 @@ export interface ExportedLineItem {
   file_path: string;             // 檔案路徑
   user_id: string;               // USERID
   username: string;              // USERNAME
+  model: string;                 // 所使用的模型
 }
 
 export interface ExportData {

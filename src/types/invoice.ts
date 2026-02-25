@@ -9,6 +9,7 @@ export interface InvoiceData {
   tax_amount: number;
   amount_inclusive_tax: number;
   page_number: number;
+  model?: string;
 }
 
 export interface ExpenseEntry extends InvoiceData {

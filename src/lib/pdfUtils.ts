@@ -1,4 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import { PDFDocument } from 'pdf-lib';
 
 // Set the worker source for pdfjs-dist v3.x
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -77,4 +78,26 @@ export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
   }
 
   return pages;
+}
+
+export interface PDFPageSplit {
+  pageNumber: number;
+  pdfBytes: Uint8Array;
+}
+
+/** 將多頁 PDF 拆成每頁各一個單頁 PDF */
+export async function splitPDFIntoPages(file: File): Promise<PDFPageSplit[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const srcDoc = await PDFDocument.load(arrayBuffer);
+  const results: PDFPageSplit[] = [];
+
+  for (let i = 0; i < srcDoc.getPageCount(); i++) {
+    const newDoc = await PDFDocument.create();
+    const [copiedPage] = await newDoc.copyPages(srcDoc, [i]);
+    newDoc.addPage(copiedPage);
+    const pdfBytes = await newDoc.save();
+    results.push({ pageNumber: i + 1, pdfBytes });
+  }
+
+  return results;
 }

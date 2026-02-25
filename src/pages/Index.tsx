@@ -1,17 +1,18 @@
-﻿import { useState } from "react";
+﻿import { useState, useRef } from "react";
 import { FileUploader } from "@/components/FileUploader";
 import { ExpenseTable } from "@/components/ExpenseTable";
 import { Card } from "@/components/ui/card";
 import { ExpenseEntry } from "@/types/invoice";
-import { Loader2, FileCheck, Terminal, Play } from "lucide-react";
+import { Loader2, FileCheck, Terminal, Play, Pause, Square } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { getAppConfig } from "@/lib/config";
-import { safeJsonParse } from "@/lib/utils";
+import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
+import { safeJsonParse, base64ToFile, getURLUserInfo, getApiBase } from "@/lib/utils";
+import { convertPDFToImages } from "@/lib/pdfUtils";
 
 const Index = () => {
   const { toast } = useToast();
@@ -26,6 +27,9 @@ const Index = () => {
     folderPath: "",
     iterations: 1,
   });
+  const [isPaused, setIsPaused] = useState(false);
+  const pauseRef = useRef(false);
+  const stopRef = useRef(false);
 
   const handleFilesProcessed = (newEntries: ExpenseEntry[]) => {
     setEntries((prev) => [...prev, ...newEntries]);
@@ -39,10 +43,15 @@ const Index = () => {
 
     setIsProcessing(true);
     setProgress(0);
+    setIsPaused(false);
+    pauseRef.current = false;
+    stopRef.current = false;
     
     try {
       // 1. 從伺服器獲取檔案列表與內容
-      const scanRes = await fetch("http://127.0.0.1:3001/scan-folder", {
+      const apiBase = getApiBase();
+      const endpoint = import.meta.env.DEV ? `${apiBase}/scan-folder` : `${apiBase}/scan_folder.asp`;
+      const scanRes = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folderPath: devConfig.folderPath }),
@@ -64,95 +73,187 @@ const Index = () => {
       const config = await getAppConfig();
       const startTime = Date.now();
 
+      // 檢查暫停與終止的輔助函數
+      const checkStatus = async () => {
+        if (stopRef.current) throw new Error("USER_TERMINATED");
+        while (pauseRef.current) {
+          if (stopRef.current) throw new Error("USER_TERMINATED");
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      };
+
+      // 定義單一圖片處理邏輯
+      const processSingleImage = async (base64ImageData: string, fileName: string, iteration: number, pageNum?: number) => {
+        await checkStatus();
+        const fileStartTime = Date.now();
+        const displayFileName = pageNum ? `${fileName} (Page ${pageNum})` : fileName;
+        
+        try {
+          if (selectedModel.includes("o3-mini")) {
+            throw new Error("o3-mini 不支援圖片辨識，請切換至 gpt-4o 或 o1");
+          }
+          const isReasoningModel = selectedModel.startsWith("o1") || selectedModel.startsWith("o3") || selectedModel.startsWith("gpt-5");
+          const systemRole = isReasoningModel ? "developer" : "system";
+
+          const apiBase = getOpenAIApiBase();
+          const resp = await fetch(`${apiBase}/v1/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${config.apiKey}`
+            },
+            body: JSON.stringify({
+              model: selectedModel,
+              messages: [
+                { role: systemRole, content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
+
+### 最重要規則：多張發票辨識
+- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
+- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
+- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
+
+### 核心辨識邏輯：
+1. **賣方資訊 (Seller Info)**：
+   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
+   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
+     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
+2. **日期 (Date Parsing)**：
+   - 格式必須為 YYYY-MM-DD。
+   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
+   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
+3. **發票號碼 (Invoice Number)**：
+   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
+4. **金額計算 (Amounts)**：
+   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
+   - **判定含稅/未稅**：
+     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
+     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
+     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
+   - **稅額 (tax_amount) 邏輯**：
+     - 優先讀取發票上明列的「營業稅」欄位。
+     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
+5. **細項 (Line Items) 處理規則**：
+   - **簡化彙整規則**：若一張發票有多個細項明細，**請將所有品項彙整為一筆代表性項目**即可。
+   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別。
+   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
+6. **發票類型 (category)**：請判斷發票類型，填入以下其中一項：電子發票、三聯式收銀機發票、二聯式收銀機發票、三聯式手寫發票、二聯式手寫發票、收據/其他。
+
+### 思考過程 (Thought Process)：
+在輸出 JSON 前，請先在 "thought_process" 中簡述：
+- 圖片中共識別到幾張獨立發票？
+- 各發票的類型與賣方資訊來源。
+
+### 輸出規範：
+請僅回傳 JSON 物件。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
+{"invoices": [{"thought_process": "...", "category": "發票類型", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}` },
+                { role: "user", content: [
+                  { type: "text", text: "請辨識這張圖片中的所有票據：" },
+                  { type: "image_url", image_url: { url: base64ImageData } }
+                ]}
+              ],
+              ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
+            })
+          });
+
+          const duration = (Date.now() - fileStartTime) / 1000;
+          let statusText = resp.ok ? "Success" : `Error ${resp.status}`;
+          let parsedResult: any = null;
+          
+          if (!resp.ok) {
+            let detailText = "";
+            const errText = await resp.text();
+            try {
+              const errBody = JSON.parse(errText);
+              detailText = errBody.error?.message || errText;
+            } catch {
+              detailText = errText;
+            }
+            statusText = `Error ${resp.status}: ${detailText}`;
+          } else {
+            const result = await resp.json();
+            const content = result.choices?.[0]?.message?.content;
+            if (!content) {
+              statusText = "Empty Result";
+            } else {
+              try {
+                parsedResult = safeJsonParse(content);
+              } catch (e) {
+                parsedResult = { raw: content };
+              }
+            }
+          }
+
+          // 從結果提取指定欄位
+          const inv = parsedResult?.invoices?.[0] ?? parsedResult ?? {};
+          const logDetail = {
+            檔案: displayFileName,
+            耗時秒: duration,
+            類別: inv.category ?? "",
+            廠商: inv.supplier_name ?? "",
+            統編: inv.supplier_tax_id ?? "",
+            日期: inv.invoice_date ?? "",
+            發票號碼: inv.invoice_number ?? "",
+            含稅金額: inv.total_amount ?? 0,
+            稅額: inv.tax_amount ?? 0,
+          };
+
+          const logMsg = `[DevMode] ${displayFileName} | ${duration}s`;
+          console.log(logMsg, logDetail);
+
+          const targetApiBase = getApiBase();
+          const logEndpoint = import.meta.env.DEV ? `${targetApiBase}/log` : `${targetApiBase}/save_ocr.asp`;
+
+          await fetch(logEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: logMsg, detail: logDetail })
+          }).catch(() => {});
+
+        } catch (e: any) {
+          const duration = (Date.now() - fileStartTime) / 1000;
+          const logMsg = `[DevMode] ${displayFileName} | ${duration}s`;
+          console.error(logMsg, e.message);
+          
+          const targetLogApiBase = getApiBase();
+          const logEndpoint = import.meta.env.DEV ? `${targetLogApiBase}/log` : `${targetLogApiBase}/save_ocr.asp`;
+
+          await fetch(logEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: logMsg, detail: { 檔案: displayFileName, 耗時秒: duration } })
+          }).catch(() => {});
+        }
+      };
+
       for (let i = 0; i < devConfig.iterations; i++) {
         console.log(`[DevMode] 第 ${i + 1} 次執行...`);
         
         for (let j = 0; j < files.length; j++) {
+          await checkStatus();
           const fileData = files[j];
-          const fileStartTime = Date.now();
           
           if (fileData.isActualPdf) {
-            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: Skipped (Original PDF not supported in DevMode) | Took: 0s`;
-            console.warn(logMsg);
-            fetch("http://127.0.0.1:3001/log", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: logMsg })
-            }).catch(() => {});
-            continue;
-          }
-
-          try {
-            if (selectedModel.includes("o3-mini")) {
-              throw new Error("o3-mini 不支援圖片辨識，請切換至 gpt-4o 或 o1");
-            }
-            const isReasoningModel = selectedModel.startsWith("o1") || selectedModel.startsWith("o3");
-            const systemRole = isReasoningModel ? "developer" : "system";
-
-            const resp = await fetch("/api-openai/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${config.apiKey}`
-              },
-              body: JSON.stringify({
-                model: selectedModel,
-                messages: [
-                  { role: systemRole, content: "你是一個專業的 OCR 辨識助手。請僅回傳 JSON 格式。" },
-                  { role: "user", content: [
-                    { type: "text", text: "請辨識這張圖片內容並回傳 JSON 格式結果。" },
-                    { type: "image_url", image_url: { url: fileData.base64Data } }
-                  ]}
-                ],
-                ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
-              })
-            });
-
-            const duration = (Date.now() - fileStartTime) / 1000;
-            let statusText = resp.ok ? "Success" : `Error ${resp.status}`;
-            let detail = null;
-            
-            if (!resp.ok) {
-              let detail = "";
-              const errText = await resp.text();
-              try {
-                const errBody = JSON.parse(errText);
-                detail = errBody.error?.message || errText;
-              } catch {
-                detail = errText;
+            try {
+              console.log(`[DevMode] 正在處理 PDF: ${fileData.fileName}`);
+              const pdfFile = await base64ToFile(fileData.base64Data, fileData.fileName, "application/pdf");
+              const pages = await convertPDFToImages(pdfFile);
+              
+              for (const page of pages) {
+                await processSingleImage(page.imageUrl, fileData.fileName, i + 1, page.pageNumber);
               }
-              statusText = `Error ${resp.status}: ${detail}`;
-            } else {
-              const result = await resp.json();
-              const content = result.choices?.[0]?.message?.content;
-              if (!content) {
-                statusText = "Empty Result";
-              } else {
-                try {
-                  detail = safeJsonParse(content);
-                } catch (e) {
-                  detail = content;
-                }
-              }
+            } catch (pdfErr: any) {
+              const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: PDF Conversion Failed (${pdfErr.message}) | Took: 0s`;
+              console.error(logMsg);
+              const logApiBase = getApiBase();
+              const logEndpoint = import.meta.env.DEV ? `${logApiBase}/log` : `${logApiBase}/save_ocr.asp`;
+              await fetch(logEndpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: logMsg })
+              }).catch(() => {});
             }
-
-            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: ${statusText} | Took: ${duration}s`;
-            console.log(logMsg);
-
-            fetch("http://127.0.0.1:3001/log", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: logMsg, detail: detail })
-            }).catch(() => {});
-
-          } catch (e: any) {
-            const duration = (Date.now() - fileStartTime) / 1000;
-            const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: Failed (${e.message}) | Took: ${duration}s`;
-            fetch("http://127.0.0.1:3001/log", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: logMsg })
-            }).catch(() => {});
+          } else {
+            await processSingleImage(fileData.base64Data, fileData.fileName, i + 1);
           }
           
           setProgress(Math.round(((i * files.length + (j + 1)) / (devConfig.iterations * files.length)) * 100));
@@ -163,10 +264,15 @@ const Index = () => {
       toast({ title: "開發者模式執行完畢", description: `總計耗時 ${totalDuration}s` });
 
     } catch (error: any) {
-      toast({ title: "執行失敗", description: error.message, variant: "destructive" });
+      if (error.message === "USER_TERMINATED") {
+        toast({ title: "已終止測試", description: "應使用者要求停止執行" });
+      } else {
+        toast({ title: "執行失敗", description: error.message, variant: "destructive" });
+      }
     } finally {
       setIsProcessing(false);
       setProgress(0);
+      setIsPaused(false);
     }
   };
 
@@ -226,6 +332,14 @@ const Index = () => {
                   <RadioGroupItem value="o3-mini" id="o3-mini" />
                   <Label htmlFor="o3-mini" className="cursor-pointer text-indigo-600" title="注意：o3-mini 目前在 API 中不支援圖片辨識">o3-Mini (僅限文字)</Label>
                 </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="gpt-5.1" id="gpt-5.1" />
+                  <Label htmlFor="gpt-5.1" className="cursor-pointer font-bold text-red-600">GPT-5.1</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="gpt-5.2" id="gpt-5.2" />
+                  <Label htmlFor="gpt-5.2" className="cursor-pointer font-bold text-red-700">GPT-5.2</Label>
+                </div>
               </RadioGroup>
             </div>
           </div>
@@ -259,6 +373,31 @@ const Index = () => {
                 {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
                 執行測試
               </Button>
+
+              {isProcessing && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      pauseRef.current = !pauseRef.current;
+                      setIsPaused(pauseRef.current);
+                    }}
+                    className="border-orange-200 text-orange-600 hover:bg-orange-50"
+                  >
+                    {isPaused ? <Play className="h-4 w-4 mr-2" /> : <Pause className="h-4 w-4 mr-2" />}
+                    {isPaused ? "恢復" : "暫停"}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      stopRef.current = true;
+                    }}
+                  >
+                    <Square className="h-4 w-4 mr-2" />
+                    終止
+                  </Button>
+                </div>
+              )}
             </div>
             
             {isProcessing && (

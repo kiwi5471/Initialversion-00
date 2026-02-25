@@ -3,8 +3,8 @@ import { Upload, FileText, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { cn, safeJsonParse } from "@/lib/utils";
-import { getAppConfig } from "@/lib/config";
+import { cn, safeJsonParse, getURLUserInfo, getApiBase } from "@/lib/utils";
+import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
 import { ExpenseEntry } from "@/types/invoice";
 import { isPDF, convertPDFToImages } from "@/lib/pdfUtils";
 
@@ -18,6 +18,7 @@ interface FileUploaderProps {
 interface SelectedFile {
   file: File;
   preview: string;
+  isPdfPage?: boolean;
 }
 
 const fileToBase64 = (file: File): Promise<string> => {
@@ -29,7 +30,7 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ entries: ExpenseEntry[], usage: any }> => {
+const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ entries: ExpenseEntry[], usage: any, invoiceList: any[] }> => {
   const config = await getAppConfig();
   const apiKey = config.apiKey;
   const model = selectedModel || config.model;
@@ -43,8 +44,8 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
 
   console.log(`[OCR] Sending ${file.name} to ${model}...`);
 
-  // o 系列模型處理
-  const isReasoningModel = model.startsWith("o1") || model.startsWith("o3");
+  // o 系列與新型 gpt-5 模型處理
+  const isReasoningModel = model.startsWith("o1") || model.startsWith("o3") || model.startsWith("gpt-5");
   const systemRole = isReasoningModel ? "developer" : "system";
 
   // o3-mini 不支援 Vision
@@ -52,7 +53,8 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
     throw new Error("o3-mini 模型目前不支援圖片辨識 (Vision)，請改用 gpt-4o 或 o1。");
   }
 
-  const response = await fetch('/api-openai/v1/chat/completions', {
+  const apiBase = getOpenAIApiBase();
+  const response = await fetch(`${apiBase}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -64,6 +66,11 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
         {
           role: systemRole,
           content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
+
+### 最重要規則：多張發票辨識
+- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
+- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
+- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
 
 ### 核心辨識邏輯：
 1. **賣方資訊 (Seller Info)**：
@@ -83,20 +90,36 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
      - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
      - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
    - **稅額 (tax_amount) 邏輯**：
-     - 優先讀取發票上明列的「營業稅」。
-     - 若未明列且為一般應稅發票，請從總額倒算：[tax_amount = round(total_amount / 1.05 * 0.05)]。
-     - 若為免稅項目，則為 0。
+     - 優先讀取發票上明列的「營業稅」欄位。
+     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
 5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整規則**：若發票有多個細項明細（如超市、餐飲、多項雜物），**請將所有品項彙整為一筆代表性項目**即可。
-   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別（例如：「生活用品等一式」、「餐飲等一式」、「辦公用品等一式」）。
+   - **簡化彙整規則**：若一張發票有多個細項明細，**請將所有品項彙整為一筆代表性項目**即可。
+   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別。
    - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
 
+6. **發票類型 (invoice_type) 分類規則**：
+   請**根據發票樣式**判斷發票類型，回傳對應代碼（必須為以下其中之一）：
+
+- 0: 電子發票（有 QR Code 或條碼）
+- 1: 三聯式手開發票
+- 2: 三聯式收銀機發票
+- 3: 二聯式收銀機發票（含機票、車票、水電費收據）
+- 4: 進貨折讓證明單
+- 5: 海關進出口貨物稅費繳納證
+- 6: 三聯式零稅率發票
+- 7: 進貨零稅率折讓證明單
+- 8: 海關進口代徵退還溢繳營業稅
+- 9: 境外電商及不得扣抵之電子發票
+   
+
 ### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在 "thought_process" 中簡述分析邏輯。
+在輸出 JSON 前，請先在 "thought_process" 中簡述：
+- 圖片中共識別到幾張獨立發票？
+- 各發票的類型與賣方資訊來源。
 
 ### 輸出規範：
-請僅回傳 JSON 物件。
-{"invoices": [{"thought_process": "...", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}`
+請僅回傳 JSON 物件。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
+{"invoices": [{"thought_process": "...", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "invoice_type":"0", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}`
         },
         {
           role: "user",
@@ -139,12 +162,8 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
   const processedEntries: ExpenseEntry[] = [];
 
   for (const inv of invoiceList) {
-    // 稅額保護邏輯
-    let finalTaxAmount = Number(inv.tax_amount) || 0;
+    const finalTaxAmount = Number(inv.tax_amount) || 0;
     const totalAmt = Number(inv.total_amount) || 0;
-    if (finalTaxAmount === 0 && totalAmt > 0) {
-      finalTaxAmount = Math.round(totalAmt / 1.05 * 0.05);
-    }
 
     const items = inv.items || [];
     if (items.length === 0) {
@@ -178,14 +197,34 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
         credit_account: "應付帳款",
         credit_item: "",
         credit_summary: "",
+        model: model,
+        category: inv.invoice_type || "0",
+        invoice_type: invoiceTypeLabel(inv.invoice_type || "0"),
       });
     }
   }
 
-  return { entries: processedEntries, usage: result.usage };
+  return { entries: processedEntries, usage: result.usage, invoiceList };
 };
 
-export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }: FileUploaderProps) => {
+// 將 invoice_type 代碼對映為文字
+const invoiceTypeLabel = (code: string): string => {
+  const map: Record<string, string> = {
+    "0": "電子發票",
+    "1": "三聯式手開發票",
+    "2": "三聯式收銀機發票",
+    "3": "二聯式收銀機發票",
+    "4": "進貨折讓證明單",
+    "5": "海關進出口貨物稅費繳納證",
+    "6": "三聯式零稅率發票",
+    "7": "進貨零稅率折讓證明單",
+    "8": "海關進口代徵退還溢繳營業稅",
+    "9": "境外電商不得扣抵電子發票",
+  };
+  return map[code] || code;
+};
+
+const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }: FileUploaderProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [isConvertingPDF, setIsConvertingPDF] = useState(false);
@@ -208,12 +247,34 @@ export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, 
     for (const file of fileArray) {
       if (isPDF(file)) {
         setIsConvertingPDF(true);
+        
+        // 立即將原始 PDF 備份到伺服器
+        fileToBase64(file).then(base64 => {
+          const rawBase64 = base64.split(',')[1];
+          const apiBase = getApiBase();
+          const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
+          const userInfo = getURLUserInfo();
+
+          fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              fileName: file.name, 
+              base64Data: rawBase64,
+              ...userInfo,
+              model: model
+            })
+          }).catch(err => console.error('PDF 備份失敗:', err));
+        });
+
         try {
           const pages = await convertPDFToImages(file);
           pages.forEach(page => {
             validFiles.push({
               file: page.file,
-              preview: page.imageUrl
+              preview: page.imageUrl,
+              // 加入標記避免重複備份 JPG 頁面
+              isPdfPage: true 
             });
           });
         } catch (err) {
@@ -305,18 +366,56 @@ export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, 
       let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
       
       for (const item of selectedFiles) {
-        // 同步備份檔案到本地資料夾
-        fileToBase64(item.file).then(base64 => {
-          const rawBase64 = base64.split(',')[1];
-          fetch('http://127.0.0.1:3001/save-file', {
+        const fileStartTime = Date.now();
+        // 同步備份檔案到本地資料夾 (僅非 PDF 頁面才備份圖片，PDF 原始檔已在 validateFiles 處理)
+        if (!item.isPdfPage) {
+          fileToBase64(item.file).then(base64 => {
+            const rawBase64 = base64.split(',')[1];
+            const apiBase = getApiBase();
+            const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
+            const userInfo = getURLUserInfo();
+
+            fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                fileName: item.file.name, 
+                base64Data: rawBase64,
+                ...userInfo,
+                model: model
+              })
+            }).catch(err => console.error('備份檔案失敗:', err));
+          });
+        }
+
+        const { entries, usage, invoiceList: fileInvoices } = await recognizeWithGPT(item.file, model);
+        const fileDuration = (Date.now() - fileStartTime) / 1000;
+        allEntries.push(...entries);
+
+        // 每張發票送出詳細 log
+        const logApiBase = getApiBase();
+        const logEndpointPerFile = import.meta.env.DEV ? `${logApiBase}/log` : `${logApiBase}/save_ocr.asp`;
+        const userInfoForLog = getURLUserInfo();
+        for (const inv of fileInvoices) {
+          const logDetail = {
+            檔案: item.file.name,
+            耗時秒: fileDuration,
+            類別: invoiceTypeLabel(inv.invoice_type ?? "0"),
+            廠商: inv.supplier_name || "",
+            統編: inv.supplier_tax_id || "",
+            日期: inv.invoice_date || "",
+            發票號碼: inv.invoice_number || "",
+            含稅金額: Number(inv.total_amount) || 0,
+            稅額: Number(inv.tax_amount) || 0,
+          };
+          const logMsg = `${item.file.name} | ${fileDuration}s`;
+          fetch(logEndpointPerFile, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName: item.file.name, base64Data: rawBase64 })
-          }).catch(err => console.error('備份檔案失敗:', err));
-        });
+            body: JSON.stringify({ message: logMsg, detail: logDetail, ...userInfoForLog, model })
+          }).catch(() => {});
+        }
 
-        const { entries, usage } = await recognizeWithGPT(item.file, model);
-        allEntries.push(...entries);
         if (usage) {
           totalUsage.prompt_tokens += usage.prompt_tokens || 0;
           totalUsage.completion_tokens += usage.completion_tokens || 0;
@@ -330,10 +429,18 @@ export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, 
       console.log(`[OCR Performance] ${logMsg}`);
       
       // 自動傳送到日誌伺服器
-      fetch('http://127.0.0.1:3001/log', {
+      const apiBase = getApiBase();
+      const logEndpoint = import.meta.env.DEV ? `${apiBase}/log` : `${apiBase}/save_ocr.asp`;
+      const userInfo = getURLUserInfo(); // 也要抓取使用者資訊
+
+      fetch(logEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: logMsg })
+        body: JSON.stringify({ 
+          message: logMsg,
+          ...userInfo,
+          model: model
+        })
       }).catch(err => console.error('無法傳送日誌:', err));
 
       onFilesProcessed(allEntries);
@@ -460,3 +567,5 @@ export const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, 
     </div>
   );
 };
+
+export { FileUploader };

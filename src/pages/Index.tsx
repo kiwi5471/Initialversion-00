@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
+import { OCR_SYSTEM_PROMPT } from "@/lib/ocrSystemPrompt";
 import { safeJsonParse, base64ToFile, getURLUserInfo, getApiBase } from "@/lib/utils";
 import { convertPDFToImages } from "@/lib/pdfUtils";
 
@@ -19,7 +20,7 @@ const Index = () => {
   const [entries, setEntries] = useState<ExpenseEntry[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [selectedModel, setSelectedModel] = useState("gpt-4o");
+  const [selectedModel, setSelectedModel] = useState("gpt-5.2");
   
   // Developer Mode States
   const [mode, setMode] = useState<"user" | "dev">("user");
@@ -105,50 +106,10 @@ const Index = () => {
             body: JSON.stringify({
               model: selectedModel,
               messages: [
-                { role: systemRole, content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
-
-### 最重要規則：多張發票辨識
-- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
-- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
-- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
-
-### 核心辨識邏輯：
-1. **賣方資訊 (Seller Info)**：
-   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
-   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
-     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
-2. **日期 (Date Parsing)**：
-   - 格式必須為 YYYY-MM-DD。
-   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
-   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
-3. **發票號碼 (Invoice Number)**：
-   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
-4. **金額計算 (Amounts)**：
-   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
-   - **判定含稅/未稅**：
-     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
-     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
-     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
-   - **稅額 (tax_amount) 邏輯**：
-     - 優先讀取發票上明列的「營業稅」欄位。
-     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
-5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整規則**：若一張發票有多個細項明細，**請將所有品項彙整為一筆代表性項目**即可。
-   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別。
-   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
-6. **發票類型 (category)**：請判斷發票類型，填入以下其中一項：電子發票、三聯式收銀機發票、二聯式收銀機發票、三聯式手寫發票、二聯式手寫發票、收據/其他。
-
-### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在 "thought_process" 中簡述：
-- 圖片中共識別到幾張獨立發票？
-- 各發票的類型與賣方資訊來源。
-
-### 輸出規範：
-請僅回傳 JSON 物件。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
-{"invoices": [{"thought_process": "...", "category": "發票類型", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}` },
+                { role: systemRole, content: OCR_SYSTEM_PROMPT },
                 { role: "user", content: [
                   { type: "text", text: "請辨識這張圖片中的所有票據：" },
-                  { type: "image_url", image_url: { url: base64ImageData } }
+                  { type: "image_url", image_url: { url: base64ImageData, detail: "high" } }
                 ]}
               ],
               ...(isReasoningModel ? {} : { response_format: { type: "json_object" } })
@@ -188,7 +149,7 @@ const Index = () => {
           const logDetail = {
             檔案: displayFileName,
             耗時秒: duration,
-            類別: inv.category ?? "",
+            類別: inv.invoice_type || inv.category || "0",
             廠商: inv.supplier_name ?? "",
             統編: inv.supplier_tax_id ?? "",
             日期: inv.invoice_date ?? "",
@@ -316,26 +277,6 @@ const Index = () => {
                 onValueChange={setSelectedModel}
                 className="flex gap-4"
               >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="gpt-4o" id="gpt-4o" />
-                  <Label htmlFor="gpt-4o" className="cursor-pointer">GPT-4o</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="gpt-4o-mini" id="gpt-4o-mini" />
-                  <Label htmlFor="gpt-4o-mini" className="cursor-pointer">4o-Mini</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="o1" id="o1" />
-                  <Label htmlFor="o1" className="cursor-pointer font-bold text-purple-600">o1 (支援圖片)</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="o3-mini" id="o3-mini" />
-                  <Label htmlFor="o3-mini" className="cursor-pointer text-indigo-600" title="注意：o3-mini 目前在 API 中不支援圖片辨識">o3-Mini (僅限文字)</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="gpt-5.1" id="gpt-5.1" />
-                  <Label htmlFor="gpt-5.1" className="cursor-pointer font-bold text-red-600">GPT-5.1</Label>
-                </div>
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="gpt-5.2" id="gpt-5.2" />
                   <Label htmlFor="gpt-5.2" className="cursor-pointer font-bold text-red-700">GPT-5.2</Label>

@@ -35,7 +35,7 @@ export async function convertPDFToImages(file: File): Promise<PDFPage[]> {
     for (let i = 1; i <= pdf.numPages; i++) {
       console.log('[PDF] Processing page', i);
       const page = await pdf.getPage(i);
-      const scale = 3; // Higher scale (3x) for better OCR quality
+      const scale = 4; // Higher scale (4x) for better OCR quality
       const viewport = page.getViewport({ scale });
 
       const canvas = document.createElement('canvas');

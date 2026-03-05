@@ -37,10 +37,17 @@ const server = http.createServer((req, res) => {
         
         if (req.url === '/log') {
           const timestamp = new Date().toLocaleString();
-          const { message, detail } = data;
+          const { message, detail, exportData } = data;
           let logEntry = `[${timestamp}] ${message}\n`;
           
-          if (detail && typeof detail === 'object') {
+          if (exportData && typeof exportData === 'object') {
+            // ExportData 格式（Copy JSON 資料）
+            logEntry += `  exportedAt: ${exportData.exportedAt}\n`;
+            logEntry += `  totalItems: ${exportData.totalItems}\n`;
+            logEntry += `  items:\n`;
+            logEntry += JSON.stringify(exportData.items, null, 2).split('\n').map(line => `    ${line}`).join('\n') + '\n';
+            logEntry += `----------------------------------------------------------------\n`;
+          } else if (detail && typeof detail === 'object') {
             // 結構化欄位格式化輸出
             const fields = ['檔案','耗時秒','類別','廠商','統編','日期','發票號碼','含稅金額','稅額'];
             fields.forEach(f => {
@@ -55,7 +62,7 @@ const server = http.createServer((req, res) => {
           }
           
           fs.appendFileSync(LOG_FILE, logEntry);
-          console.log('已記錄數據:', message, detail ? '(含明細)' : '');
+          console.log('已記錄數據:', message, exportData ? '(ExportData)' : detail ? '(含明細)' : '');
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'success' }));
         } 

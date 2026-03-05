@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { cn, safeJsonParse, getURLUserInfo, getApiBase } from "@/lib/utils";
 import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
+import { OCR_SYSTEM_PROMPT } from "@/lib/ocrSystemPrompt";
 import { ExpenseEntry } from "@/types/invoice";
 import { isPDF, convertPDFToImages } from "@/lib/pdfUtils";
 
@@ -65,61 +66,7 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
       messages: [
         {
           role: systemRole,
-          content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
-
-### 最重要規則：多張發票辨識
-- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
-- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
-- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
-
-### 核心辨識邏輯：
-1. **賣方資訊 (Seller Info)**：
-   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
-   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
-     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
-2. **日期 (Date Parsing)**：
-   - 格式必須為 YYYY-MM-DD。
-   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
-   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
-3. **發票號碼 (Invoice Number)**：
-   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
-4. **金額計算 (Amounts)**：
-   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
-   - **判定含稅/未稅**：
-     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
-     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
-     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
-   - **稅額 (tax_amount) 邏輯**：
-     - 優先讀取發票上明列的「營業稅」欄位。
-     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
-5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整規則**：若一張發票有多個細項明細，**請將所有品項彙整為一筆代表性項目**即可。
-   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別。
-   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
-
-6. **發票類型 (invoice_type) 分類規則**：
-   請**根據發票樣式**判斷發票類型，回傳對應代碼（必須為以下其中之一）：
-
-- 0: 電子發票（有 QR Code 或條碼）
-- 1: 三聯式手開發票
-- 2: 三聯式收銀機發票
-- 3: 二聯式收銀機發票（含機票、車票、水電費收據）
-- 4: 進貨折讓證明單
-- 5: 海關進出口貨物稅費繳納證
-- 6: 三聯式零稅率發票
-- 7: 進貨零稅率折讓證明單
-- 8: 海關進口代徵退還溢繳營業稅
-- 9: 境外電商及不得扣抵之電子發票
-   
-
-### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在 "thought_process" 中簡述：
-- 圖片中共識別到幾張獨立發票？
-- 各發票的類型與賣方資訊來源。
-
-### 輸出規範：
-請僅回傳 JSON 物件。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
-{"invoices": [{"thought_process": "...", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "invoice_type":"0", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}`
+          content: OCR_SYSTEM_PROMPT
         },
         {
           role: "user",
@@ -131,7 +78,8 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
             {
               type: "image_url",
               image_url: {
-                url: `data:image/jpeg;base64,${base64Data}`
+                url: `data:image/jpeg;base64,${base64Data}`,
+                detail: "high"
               }
             }
           ]
@@ -442,6 +390,38 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
           model: model
         })
       }).catch(err => console.error('無法傳送日誌:', err));
+
+      // 組建 ExportData（與 Copy JSON 按鈕相同格式）並寫入 log
+      const exportItems = allEntries.map(entry => ({
+        name: entry.notes?.match(/發票號碼: (.+)/)?.[1] || null,
+        category: entry.invoice_type || "",
+        tax_id: entry.supplier_tax_id || null,
+        vendor: entry.supplier_name || "",
+        date: entry.invoice_date || null,
+        amount_without_tax: String(entry.amount_exclusive_tax || 0),
+        tax_amount: String(entry.tax_amount || 0),
+        amount_with_tax: String(entry.amount_inclusive_tax || 0),
+        scanned_filename: entry.filename || "",
+        file_path: "",
+        user_id: userInfo.userId || "",
+        username: userInfo.username || "",
+        model: model || config.model,
+      }));
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        totalItems: exportItems.length,
+        items: exportItems,
+      };
+      fetch(logEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message: "[ExportData] Copy JSON",
+          exportData,
+          ...userInfo,
+          model: model
+        })
+      }).catch(err => console.error('無法傳送 ExportData 日誌:', err));
 
       onFilesProcessed(allEntries);
       

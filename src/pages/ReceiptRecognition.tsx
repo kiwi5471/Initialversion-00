@@ -13,6 +13,7 @@ import { RotateCcw, Play, Loader2, Terminal, Pause, Square } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
+import { OCR_SYSTEM_PROMPT } from "@/lib/ocrSystemPrompt";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -38,9 +39,14 @@ export default function ReceiptRecognition() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [selectedModel, setSelectedModel] = useState("gpt-4o");
+  const [selectedModel, setSelectedModel] = useState("gpt-5.2");
 
   // Developer Mode States
+  const resolveInvoiceCategory = (invoice: any): string => {
+    const raw = invoice?.invoice_type ?? invoice?.category ?? "0";
+    const normalized = String(raw).trim();
+    return /^\d$/.test(normalized) ? normalized : "0";
+  };
   const [mode, setMode] = useState<"user" | "dev">("user");
   const [devConfig, setDevConfig] = useState({
     folderPath: "",
@@ -118,47 +124,7 @@ export default function ReceiptRecognition() {
             body: JSON.stringify({
               model: selectedModel,
               messages: [
-                { role: systemRole, content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
-
-### 最重要規則：多張發票辨識
-- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
-- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
-- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
-
-### 核心辨識邏輯：
-1. **賣方資訊 (Seller Info)**：
-   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
-   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
-     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
-2. **日期 (Date Parsing)**：
-   - 格式必須為 YYYY-MM-DD。
-   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
-   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
-3. **發票號碼 (Invoice Number)**：
-   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
-4. **金額計算 (Amounts)**：
-   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
-   - **判定含稅/未稅**：
-     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
-     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
-     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
-   - **稅額 (tax_amount) 邏輯**：
-     - 優先讀取發票上明列的「營業稅」欄位。
-     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
-5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整規則**：若一張發票有多個細項明細，**請將所有品項彙整為一筆代表性項目**即可。
-   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別。
-   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
-6. **發票類型 (category)**：請判斷發票類型，填入以下其中一項：電子發票、三聯式收銀機發票、二聯式收銀機發票、三聯式手寫發票、二聯式手寫發票、收據/其他。
-
-### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在 "thought_process" 中簡述：
-- 圖片中共識別到幾張獨立發票？
-- 各發票的類型與賣方資訊來源。
-
-### 輸出規範：
-請僅回傳 JSON 物件。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
-{"invoices": [{"thought_process": "...", "category": "發票類型", "supplier_name":"...", "supplier_tax_id":"...", "invoice_number":"...", "invoice_date":"...", "total_amount":0, "tax_amount":0, "items": [{"description":"...", "amount":0}]}]}` },
+                { role: systemRole, content: OCR_SYSTEM_PROMPT },
                 { role: "user", content: [
                   { type: "text", text: "請辨識這張圖片中的所有票據：" },
                   { type: "image_url", image_url: { url: base64ImageData } }
@@ -200,7 +166,7 @@ export default function ReceiptRecognition() {
           const logDetail = {
             檔案: displayFileName,
             耗時秒: duration,
-            類別: inv.category ?? "",
+            類別: inv.invoice_type ?? inv.category ?? "",
             廠商: inv.supplier_name ?? "",
             統編: inv.supplier_tax_id ?? "",
             日期: inv.invoice_date ?? "",
@@ -345,49 +311,7 @@ export default function ReceiptRecognition() {
             messages: [
               {
                 role: systemRole,
-                content: `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
-
-### 最重要規則：多張發票辨識
-- 圖片中可能同時存在**多張實體發票或收據**（例如：將數張發票放在一起掃描，或一頁有多個獨立欄位）。
-- **每一張獨立的發票必須輸出為 invoices 陣列中的一個獨立物件**，不可將多張發票合併成一筆。
-- 判斷是否為「獨立發票」的依據：不同的發票號碼、不同的供應商、不同的發票章、不同的交易日期等。
-
-### 核心辨識邏輯：
-1. **賣方資訊 (Seller Info)**：
-   - **供應商名稱 (supplier_name)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
-   - **供應商統編 (supplier_tax_id)**：這是「賣方」的 8 位數字。
-     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
-2. **日期 (Date Parsing)**：
-   - 格式必須為 YYYY-MM-DD。
-   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
-   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
-3. **發票號碼 (Invoice Number)**：
-   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
-4. **金額計算 (Amounts)**：
-   - **總額 (total_amount)**：指含稅後的最終支付總額（客戶實際支付的錢）。
-   - **判定含稅/未稅**：
-     - **三聯式發票**：若有「銷售額」、「營業稅」、「總計」三個欄位，請精確讀取。
-     - **二聯式/電子發票/收銀機發票**：通常「總計」即為含稅金額。
-     - **免稅/零稅率**：若畫面中有標註「免稅」或「零稅率」，則稅額 (tax_amount) 必須為 0。
-   - **稅額 (tax_amount) 邏輯**：
-     - 優先讀取發票上明列的「營業稅」欄位。
-     - 若發票未明列稅額、或為免稅/收據/零稅率，稅額一律填 0，**不可自行推算**。
-5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整規則**：若一張發票有多個細項明細（如超市、餐飲、多項雜物），**請將所有品項彙整為一筆代表性項目**即可。
-   - **描述格式**：使用「[主要品項名稱] 等一式」或根據發票內容判斷類別（例如：「生活用品等一式」、「餐飲等一式」、「辦公用品等一式」）。
-   - **金額一致性**：該彙整項目的金額（amount）必須等於發票的總計含稅金額（total_amount）。
-
-### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在 "thought_process" 中簡述：
-- 圖片中共識別到幾張獨立發票？
-- 這是哪種類型的發票？
-- 你在哪個位置找到了發票章或賣方資訊？
-- 你是如何計算或確認稅額與總額的？
-
-### 輸出規範：
-請嚴格遵守 JSON 格式。若某個欄位資訊完全不存在，請填入 null。**若圖片中有 N 張獨立發票，invoices 陣列必須有 N 個物件。**
-
-{"invoices": [{"thought_process": "分析過程敘述...", "supplier_name":"名稱", "supplier_tax_id":"8位數字", "invoice_number":"XY12345678", "invoice_date":"YYYY-MM-DD", "total_amount":數字, "tax_amount":數字, "items": [{"description":"品項名稱", "amount":數字}]}]}`
+                content: OCR_SYSTEM_PROMPT
               },
               {
                 role: "user",
@@ -399,7 +323,8 @@ export default function ReceiptRecognition() {
                   {
                     type: "image_url",
                     image_url: {
-                      url: `data:image/jpeg;base64,${base64Data}`
+                      url: `data:image/jpeg;base64,${base64Data}`,
+                      detail: "high"
                     }
                   }
                 ]
@@ -431,6 +356,7 @@ export default function ReceiptRecognition() {
         const allLineItems: any[] = [];
         
         for (const content of invoiceList) {
+          const invoiceCategory = resolveInvoiceCategory(content);
           // 稅額保護邏輯：如果 AI 沒抓到稅額但有總額，嘗試計算 5%
           let finalTaxAmount = Number(content.tax_amount) || 0;
           const totalAmt = Number(content.total_amount) || 0;
@@ -441,7 +367,7 @@ export default function ReceiptRecognition() {
 
           const items = (content.items || []).map((item: any) => ({
             id: crypto.randomUUID(),
-            category: "0",
+            category: invoiceCategory,
             vendor: content.supplier_name || "",
             tax_id: content.supplier_tax_id || "",
             date: content.invoice_date || null,
@@ -457,7 +383,7 @@ export default function ReceiptRecognition() {
           if (items.length === 0 && content.supplier_name) {
             items.push({
               id: crypto.randomUUID(),
-              category: "0",
+              category: invoiceCategory,
               vendor: content.supplier_name || "",
               tax_id: content.supplier_tax_id || "",
               date: content.invoice_date || null,
@@ -608,6 +534,60 @@ export default function ReceiptRecognition() {
         model: selectedModel
       })
     }).catch(err => console.error('無法傳送日誌:', err));
+
+    // 每張發票詳細 log
+    const avgDuration = duration / uploadedFiles.length;
+    for (const result of results) {
+      if (result.status === 'success' && result.lineItems.length > 0) {
+        for (const item of result.lineItems) {
+          const logDetail = {
+            檔案: result.fileName,
+            耗時秒: Math.round(avgDuration * 100) / 100,
+            類別: item.category || "0",
+            廠商: item.vendor || "",
+            統編: item.tax_id || "",
+            日期: item.date || "",
+            發票號碼: item.invoice_number || "",
+            含稅金額: Number(item.amount_with_tax) || 0,
+            稅額: Number(item.input_tax) || 0,
+          };
+          const detailMsg = `${result.fileName} | ${avgDuration.toFixed(2)}s`;
+          fetch(logEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: detailMsg, detail: logDetail, ...userInfo, model: selectedModel })
+          }).catch(() => {});
+        }
+      }
+    }
+
+    // ExportData log (Copy JSON 格式)
+    const allLineItems = results.flatMap(r => r.status === 'success' ? r.lineItems : []);
+    const exportItems = allLineItems.map(item => ({
+      name: item.invoice_number || null,
+      category: item.category || "",
+      tax_id: item.tax_id || null,
+      vendor: item.vendor || "",
+      date: item.date || null,
+      amount_without_tax: String(Number(item.amount_with_tax || 0) - Number(item.input_tax || 0)),
+      tax_amount: String(item.input_tax || 0),
+      amount_with_tax: String(item.amount_with_tax || 0),
+      scanned_filename: results.find(r => r.lineItems.includes(item))?.fileName || "",
+      file_path: "",
+      user_id: userInfo.userId || "",
+      username: userInfo.username || "",
+      model: selectedModel,
+    }));
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      totalItems: exportItems.length,
+      items: exportItems,
+    };
+    fetch(logEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: "[ExportData] Copy JSON", exportData, ...userInfo, model: selectedModel })
+    }).catch(err => console.error('無法傳送 ExportData 日誌:', err));
 
     setIsProcessing(false);
 
@@ -833,28 +813,8 @@ export default function ReceiptRecognition() {
                   className="flex gap-3"
                 >
                   <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="gpt-4o" id="m-gpt-4o" />
-                    <Label htmlFor="m-gpt-4o" className="text-xs cursor-pointer">4o</Label>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="gpt-4o-mini" id="m-4o-mini" />
-                    <Label htmlFor="m-4o-mini" className="text-xs cursor-pointer">Mini</Label>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="o1" id="m-o1" />
-                    <Label htmlFor="m-o1" className="text-xs cursor-pointer font-bold text-purple-600" title="支援圖片辨識">o1</Label>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="o3-mini" id="m-o3" />
-                    <Label htmlFor="m-o3" className="text-xs cursor-pointer text-indigo-600 opacity-50" title="注意：o3-mini 目前不支援圖片辨識">o3 (不支圖)</Label>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="gpt-5.1" id="m-gpt51" />
-                    <Label htmlFor="m-gpt51" className="text-xs cursor-pointer font-bold text-red-600">5.1</Label>
-                  </div>
-                  <div className="flex items-center space-x-1">
                     <RadioGroupItem value="gpt-5.2" id="m-gpt52" />
-                    <Label htmlFor="m-gpt52" className="text-xs cursor-pointer font-bold text-red-700">5.2</Label>
+                    <Label htmlFor="m-gpt52" className="text-xs cursor-pointer font-bold text-red-700">GPT-5.2</Label>
                   </div>
                 </RadioGroup>
               </div>

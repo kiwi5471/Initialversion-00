@@ -1,0 +1,393 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
+    }
+
+    const { imageData, filename } = await req.json();
+    
+    console.log(`Processing receipt OCR for file: ${filename}`);
+
+    const systemPrompt = `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
+
+### 核心辨識邏輯：
+1. **賣方資訊 (Seller Info)**：
+   - **供應商名稱 (supplier_name/vendor)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
+   - **供應商統編 (supplier_tax_id/tax_id)**：這是「賣方」的 8 位數字。
+     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
+2. **日期 (Date Parsing)**：
+   - 格式必須為 YYYY-MM-DD。
+   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
+   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
+3. **發票號碼 (Invoice Number)**：
+   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
+4. **金額計算 (Amounts)**：
+   - **總額 (total_amount/amount_with_tax)**：指含稅後的最終支付總額。
+   - **稅額辨識邏輯**：
+     - 如果發票有單獨列出「營業稅」或「Tax」，請直接抓取。
+     - 如果是「二聯式」或「電子發票證明聯」，通常總額已含稅，若未列出稅額，請依 5% 營業稅公式計算：`round(總額 / 1.05 * 0.05)`。
+     - **特別注意**：檢查是否有「免稅」(Tax-Free) 或「零稅率」標記，若有，則稅額應為 0。
+5. **細項 (Line Items) 處理規則**：
+   - **簡化彙整原則**：不論發票上有多少筆明細，**請統一彙整為一筆主要項目回傳**。
+   - **命名規範**：請根據發票內容判斷類別，並命名為「[類別名稱] 等一式」（例如：餐飲等一式、辦公耗材等一式、生活百貨等一式）。
+   - **金額對齊**：該彙整項目的 `amount_with_tax` 必須等於發票的總額。
+   - 目的：我們只需要呈現該發票的核心類別與最終總金額，不需要列出所有微小細項。
+
+### 思考過程 (Thought Process)：
+在輸出 JSON 前，請先在並加入 "thought_process" 紀錄：
+- 這是哪種類型的發票？
+- 你在哪個位置找到了發票章或賣方資訊？
+- 你是如何計算或確認稅額與總額的？
+
+### 輸出規範：
+請嚴格遵守 JSON 格式並使用指定的鍵值。
+
+{
+  "lineItems": [
+    {
+      "id": "line_001",
+      "category": "0",
+      "vendor": "賣方廠商名稱",
+      "tax_id": "賣方統一編號（8碼純數字）",
+      "date": "YYYY-MM-DD",
+      "invoice_number": "發票號碼（2碼英文+8碼數字）",
+      "amount_with_tax": 總額數字,
+      "input_tax": 稅額數字,
+      "editable": true,
+      "sourceBlockIds": ["b_001"]
+    }
+  ],
+  "ocrBlocks": [
+    {
+      "id": "b_001",
+      "page": 1,
+      "text": "辨識出的關鍵文字",
+      "type": "amount",
+      "confidence": 0.95,
+      "bbox": { "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05 }
+    }
+  ]
+}`;
+  ],
+  "metadata": {
+    "vendor": "賣方廠商名稱",
+    "tax_id": "賣方統一編號",
+    "date": "YYYY-MM-DD",
+    "total_amount": 總金額數字
+  }
+}
+
+【category 憑證種類代碼】
+- 0: 電子發票（有 QR Code 或條碼）
+- 1: 三聯式手開發票
+- 2: 三聯式收銀機發票
+- 3: 二聯式收銀機發票（含機票、車票、水電費收據）
+- 4: 進貨折讓證明單
+- 5: 海關進出口貨物稅費繳納證
+- 6: 三聯式零稅率發票
+- 7: 進貨零稅率折讓證明單
+- 8: 海關進口代徵退還溢繳營業稅
+- 9: 境外電商及不得扣抵之電子發票
+
+【ocrBlocks type 類型】
+title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
+
+【bbox 座標】0-1 正規化座標`;
+
+    const requestBody = {
+      model: 'google/gemini-2.5-pro',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '請分析這張收據圖片，擷取所有費用明細和 OCR 文字區塊，並提供精確的 bounding box 座標：'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: imageData
+              }
+            }
+          ]
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 4096,
+    };
+
+    // Retry OpenAI calls on 429 to reduce client-visible failures.
+    const MAX_ATTEMPTS = 4; // 1 initial + 3 retries
+    let response: Response | null = null;
+    let lastErrorText = '';
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) break;
+
+      // If rate-limited, wait and retry.
+      if (response.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+        lastErrorText = await response.text();
+        const retryAfterHeader = response.headers.get('retry-after');
+        const retryAfterMs = retryAfterHeader && !Number.isNaN(Number(retryAfterHeader))
+          ? Math.max(1, Number(retryAfterHeader)) * 1000
+          : (1500 * Math.pow(2, attempt)); // 1.5s, 3s, 6s, ...
+
+        console.warn(
+          `OpenAI rate limited (429). attempt ${attempt + 1}/${MAX_ATTEMPTS}. waiting ${retryAfterMs}ms.`,
+        );
+        await sleep(retryAfterMs);
+        continue;
+      }
+
+      // Non-429 errors: keep body for diagnostics and stop retrying.
+      lastErrorText = await response.text();
+      break;
+    }
+
+    if (!response || !response.ok) {
+      const status = response?.status ?? 500;
+
+      // IMPORTANT: Return 200 so the web client doesn't treat this as a hard network failure.
+      // We surface the actual code in JSON as `code`.
+      if (status === 429) {
+        return new Response(
+          JSON.stringify({ success: false, code: 429, error: '請求過於頻繁，請稍後再試' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (status === 402) {
+        return new Response(
+          JSON.stringify({ success: false, code: 402, error: '額度不足，請增加使用額度' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.error('OpenAI error:', status, lastErrorText);
+      throw new Error(`OpenAI error: ${status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    
+    if (!content) {
+      throw new Error('No content returned from AI');
+    }
+
+    console.log('AI Response:', content);
+
+    // Parse the JSON response from AI
+    let extractedData;
+    try {
+      // Try to extract JSON from markdown code blocks or raw JSON
+      let jsonString = content;
+      
+      // Remove markdown code blocks if present
+      const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        jsonString = codeBlockMatch[1].trim();
+      } else {
+        // Try to find JSON object directly
+        const jsonObjectMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) {
+          jsonString = jsonObjectMatch[0];
+        }
+      }
+      
+      // Try to fix truncated JSON by closing open brackets
+      let fixedJson = jsonString;
+      const openBraces = (fixedJson.match(/\{/g) || []).length;
+      const closeBraces = (fixedJson.match(/\}/g) || []).length;
+      const openBrackets = (fixedJson.match(/\[/g) || []).length;
+      const closeBrackets = (fixedJson.match(/\]/g) || []).length;
+      
+      // Add missing closing brackets
+      for (let i = 0; i < openBrackets - closeBrackets; i++) {
+        fixedJson += ']';
+      }
+      for (let i = 0; i < openBraces - closeBraces; i++) {
+        fixedJson += '}';
+      }
+      
+      extractedData = JSON.parse(fixedJson);
+    } catch (parseError) {
+      console.error('Error parsing AI response:', parseError);
+      console.error('Raw content:', content.substring(0, 500));
+      
+      // Return minimal valid structure if parsing fails
+      extractedData = {
+        lineItems: [],
+        ocrBlocks: [],
+        metadata: {}
+      };
+    }
+
+    // Validate and format ocrBlocks
+    const ocrBlocks = (extractedData.ocrBlocks || []).map((block: any, index: number) => {
+      const bbox = block.bbox || {};
+      return {
+        id: block.id || `b_${String(index + 1).padStart(3, '0')}`,
+        page: block.page || 1,
+        text: block.text || '',
+        type: block.type || 'other',
+        confidence: typeof block.confidence === 'number' ? block.confidence : 0.8,
+        bbox: {
+          x: typeof bbox.x === 'number' ? Math.max(0, Math.min(1, bbox.x)) : 0.1,
+          y: typeof bbox.y === 'number' ? Math.max(0, Math.min(1, bbox.y)) : 0.1 + index * 0.08,
+          w: typeof bbox.w === 'number' ? Math.max(0.01, Math.min(1, bbox.w)) : 0.8,
+          h: typeof bbox.h === 'number' ? Math.max(0.01, Math.min(1, bbox.h)) : 0.04
+        }
+      };
+    });
+
+    // Create a map of block IDs for validation
+    const blockIdSet = new Set(ocrBlocks.map((b: any) => b.id));
+
+    // Get vendor and tax_id from metadata for default values
+    const metadataVendor = extractedData.metadata?.vendor || extractedData.metadata?.vendor_name || '';
+    const metadataTaxId = extractedData.metadata?.tax_id || null;
+
+    // Map lineItems with validated source block references
+    const lineItems = (extractedData.lineItems || []).map((item: any, index: number) => {
+      // Validate sourceBlockIds - only include IDs that exist in ocrBlocks
+      let sourceBlockIds = Array.isArray(item.sourceBlockIds) 
+        ? item.sourceBlockIds.filter((id: string) => blockIdSet.has(id))
+        : [];
+      
+      // If no valid sourceBlockIds, try to find related blocks
+      if (sourceBlockIds.length === 0) {
+        const relatedBlocks = ocrBlocks.filter((block: any) => 
+          block.text.includes(String(item.amount_with_tax)) || 
+          block.text.includes(item.invoice_number) ||
+          block.type === 'amount' ||
+          block.type === 'invoice_number' ||
+          block.type === 'total'
+        ).slice(0, 2);
+        sourceBlockIds = relatedBlocks.map((b: any) => b.id);
+      }
+
+      // Validate tax_id - must be 8 digits only
+      let taxId = item.tax_id || metadataTaxId;
+      if (taxId && !/^\d{8}$/.test(taxId)) {
+        taxId = null;
+      }
+
+      // Parse amount_with_tax
+      const amountWithTax = typeof item.amount_with_tax === 'number' 
+        ? item.amount_with_tax 
+        : (typeof item.amount === 'number' ? item.amount : Number(item.amount_with_tax || item.amount) || 0);
+      
+      // Parse input_tax (default to 5% of amount if not provided)
+      const inputTax = typeof item.input_tax === 'number' 
+        ? item.input_tax 
+        : Math.round(amountWithTax - amountWithTax / 1.05);
+
+      // Clean and validate invoice_number - must be 2 letters + 8 digits
+      let invoiceNumber = item.invoice_number || null;
+      if (invoiceNumber) {
+        // Remove dashes, spaces, and other non-alphanumeric characters
+        invoiceNumber = invoiceNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        // Validate format: 2 letters + 8 digits
+        if (!/^[A-Z]{2}\d{8}$/.test(invoiceNumber)) {
+          // Try to extract valid pattern from the string
+          const match = invoiceNumber.match(/([A-Z]{2})(\d{8})/);
+          invoiceNumber = match ? match[1] + match[2] : null;
+        }
+      }
+
+      return {
+        id: item.id || `line_${String(index + 1).padStart(3, '0')}`,
+        category: item.category || '0',
+        vendor: item.vendor || metadataVendor || '未知廠商',
+        tax_id: taxId,
+        date: item.date || extractedData.metadata?.date || null,
+        invoice_number: invoiceNumber,
+        amount_with_tax: String(amountWithTax),
+        input_tax: String(inputTax),
+        editable: true,
+        sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
+      };
+    });
+
+    // If no lineItems but we have a total, create one line item
+    if (lineItems.length === 0 && extractedData.metadata?.total_amount) {
+      const totalBlocks = ocrBlocks.filter((b: any) => b.type === 'total' || b.type === 'amount');
+      const totalAmount = extractedData.metadata.total_amount;
+      lineItems.push({
+        id: 'line_001',
+        category: '0',
+        vendor: metadataVendor || '未知廠商',
+        tax_id: metadataTaxId,
+        date: extractedData.metadata?.date || null,
+        invoice_number: null,
+        amount_with_tax: String(totalAmount),
+        input_tax: String(Math.round(totalAmount - totalAmount / 1.05)),
+        editable: true,
+        sourceBlockIds: totalBlocks.length > 0 ? [totalBlocks[0].id] : []
+      });
+    }
+
+    // Validate metadata tax_id
+    let finalTaxId = extractedData.metadata?.tax_id || null;
+    if (finalTaxId && !/^\d{8}$/.test(finalTaxId)) {
+      finalTaxId = null;
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          lineItems,
+          ocrBlocks,
+          metadata: {
+            vendor: metadataVendor || null,
+            tax_id: finalTaxId,
+            date: extractedData.metadata?.date || null,
+            total_amount: typeof extractedData.metadata?.total_amount === 'number' 
+              ? extractedData.metadata.total_amount 
+              : (typeof extractedData.metadata?.total === 'number' ? extractedData.metadata.total : null)
+          }
+        }
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error in receipt-ocr function:', error);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});

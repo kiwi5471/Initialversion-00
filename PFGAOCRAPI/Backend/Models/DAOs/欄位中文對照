@@ -1,0 +1,179 @@
+Option Explicit
+
+Public Function getConnection(ByVal COMPANY As String) As ADODB.Connection
+    Dim CONN As ADODB.Connection
+    On Error GoTo HandleError
+    Set CONN = New ADODB.Connection
+    Select Case COMPANY
+       Case "T"
+          CONN.Open "File Name=C:\DATALINK\DMBASGAMS.UDL"
+       Case "N"
+          CONN.Open "File Name=C:\DATALINK\DMGAMSNPST.UDL"
+       Case "P"
+          CONN.Open "File Name=C:\DATALINK\DMGAMSPCT.UDL"
+       Case "B"
+          CONN.Open "File Name=C:\DATALINK\DMGAMSPSTW.UDL"
+       Case Else
+          GoTo HandleError
+    End Select
+    Set getConnection = CONN
+    Exit Function
+HandleError:
+    Set getConnection = Nothing
+    Err.Raise Err.Number, Err.Source & "  *系統當機請通知資訊中心! ", "**" & Err.Description & "存取資料庫連線錯誤。"
+End Function
+
+Public Function OCR_UPLOAD(ByVal COMPANY As String, ByVal KIND As String, ByVal MANNO As String, ByVal BUNO As String, ByVal DEPT As String, ByRef AryDataU As Variant, ByRef MSG As String) As String
+'----------------------------------------------------------------------------------------
+'目的   : OCR資料寫入 TFGAOCRV
+'傳回值 : 0:正常 ; 其他:錯誤訊息
+'----------------------------------------------------------------------------------------
+On Error GoTo Err_Handle
+
+    Dim CONN As ADODB.Connection
+    Dim RS As New ADODB.Recordset
+    Dim ObjContext As ObjectContext
+    Dim SQL As String, RC As String
+    Dim strInterruptPoint As String
+    
+    Dim DOC_ID As String
+    Dim FILE_NAME As String
+    Dim FILE_PATH As String
+    Dim UPLOAD_DATE As String
+    Dim UPLOAD_USER As String
+    Dim VOUCHER_TYPE As String
+    Dim INVOICE_TYPE As String
+    Dim INVOICE_NO As String
+    Dim INVOICE_DATE As String
+    Dim SELLER_NAME As String
+    Dim SELLER_TAX_ID As String
+    Dim BUYER_NAME As String
+    Dim BUYER_TAX_ID As String
+    Dim ITEM_DESC As String
+    Dim QTY As String
+    Dim UNIT_PRICE As String
+    Dim AMT As String
+    Dim REMARK As String
+    Dim AMT_BEFORE_TAX As String
+    Dim TAX_AMT As String
+    Dim AMT_TOTAL As String
+    Dim TAX_TYPE As String
+    Dim EXPENSE_TYPE As String
+    Dim ACCOUNT_CODE As String
+    
+    Set ObjContext = GetObjectContext()
+    
+    strInterruptPoint = "Step.1"
+    RC = "0"
+    
+    Set CONN = CreateObject("ADODB.Connection")
+    CONN.CursorLocation = adUseClient
+    Set CONN = getConnection(COMPANY)
+    
+    DOC_ID = Trim(AryDataU(0, 0) & "")
+    FILE_NAME = Trim(AryDataU(1, 0) & "")
+    FILE_PATH = Trim(AryDataU(2, 0) & "")
+    UPLOAD_DATE = Trim(AryDataU(3, 0) & "")
+    UPLOAD_USER = Trim(AryDataU(4, 0) & "")
+    DEPT = Trim(AryDataU(5, 0) & "")
+    VOUCHER_TYPE = Trim(AryDataU(6, 0) & "")
+    INVOICE_TYPE = Trim(AryDataU(7, 0) & "")
+    INVOICE_NO = Trim(AryDataU(8, 0) & "")
+    INVOICE_DATE = Trim(AryDataU(9, 0) & "")
+    SELLER_NAME = Trim(AryDataU(10, 0) & "")
+    SELLER_TAX_ID = Trim(AryDataU(11, 0) & "")
+    BUYER_NAME = Trim(AryDataU(12, 0) & "")
+    BUYER_TAX_ID = Trim(AryDataU(13, 0) & "")
+    ITEM_DESC = Trim(AryDataU(14, 0) & "")
+    QTY = Trim(AryDataU(15, 0) & "")
+    UNIT_PRICE = Trim(AryDataU(16, 0) & "")
+    AMT = Trim(AryDataU(17, 0) & "")
+    REMARK = Trim(AryDataU(18, 0) & "")
+    AMT_BEFORE_TAX = Trim(AryDataU(19, 0) & "")
+    TAX_AMT = Trim(AryDataU(20, 0) & "")
+    AMT_TOTAL = Trim(AryDataU(21, 0) & "")
+    TAX_TYPE = Trim(AryDataU(22, 0) & "")
+    EXPENSE_TYPE = Trim(AryDataU(23, 0) & "")
+    ACCOUNT_CODE = Trim(AryDataU(24, 0) & "")
+    
+    
+    'RC = "DOC_ID不可空白!"
+    '    GoTo Err_Handle
+    'End If
+    
+    If INVOICE_NO = "" Then
+        RC = "INVOICE_NO不可空白!"
+        GoTo Err_Handle
+    End If
+    
+    strInterruptPoint = "Step.2"
+    
+    
+    SQL = "INSERT INTO TFGAOCRV ("
+    SQL = SQL & "DOC_ID, FILE_NAME, FILE_PATH, UPLOAD_DATE, UPLOAD_USER, DEPT, "
+    SQL = SQL & "VOUCHER_TYPE, INVOICE_TYPE, INVOICE_NO, INVOICE_DATE, "
+    SQL = SQL & "SELLER_NAME, SELLER_TAX_ID, BUYER_NAME, BUYER_TAX_ID, "
+    SQL = SQL & "ITEM_DESC, QTY, UNIT_PRICE, AMT, REMARK, "
+    SQL = SQL & "AMT_BEFORE_TAX, TAX_AMT, AMT_TOTAL, TAX_TYPE, EXPENSE_TYPE, ACCOUNT_CODE"
+    SQL = SQL & ") VALUES ("
+    SQL = SQL & "'" & Replace(DOC_ID, "'", "''") & "',"
+    SQL = SQL & "N'" & Replace(FILE_NAME, "'", "''") & "',"
+    SQL = SQL & "N'" & Replace(FILE_PATH, "'", "''") & "',"
+    SQL = SQL & IIf(UPLOAD_DATE = "", "NULL", "'" & Replace(UPLOAD_DATE, "'", "''") & "'") & ","
+    SQL = SQL & "'" & Replace(UPLOAD_USER, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(DEPT, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(VOUCHER_TYPE, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(INVOICE_TYPE, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(INVOICE_NO, "'", "''") & "',"
+    SQL = SQL & IIf(INVOICE_DATE = "", "NULL", "'" & Replace(INVOICE_DATE, "'", "''") & "'") & ","
+    SQL = SQL & "N'" & Replace(SELLER_NAME, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(SELLER_TAX_ID, "'", "''") & "',"
+    SQL = SQL & "N'" & Replace(BUYER_NAME, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(BUYER_TAX_ID, "'", "''") & "',"
+    SQL = SQL & "N'" & Replace(ITEM_DESC, "'", "''") & "',"
+    SQL = SQL & IIf(QTY = "", "NULL", QTY) & ","
+    SQL = SQL & IIf(UNIT_PRICE = "", "NULL", UNIT_PRICE) & ","
+    SQL = SQL & IIf(AMT = "", "NULL", AMT) & ","
+    SQL = SQL & "N'" & Replace(REMARK, "'", "''") & "',"
+    SQL = SQL & IIf(AMT_BEFORE_TAX = "", "NULL", AMT_BEFORE_TAX) & ","
+    SQL = SQL & IIf(TAX_AMT = "", "NULL", TAX_AMT) & ","
+    SQL = SQL & IIf(AMT_TOTAL = "", "NULL", AMT_TOTAL) & ","
+    SQL = SQL & "'" & Replace(TAX_TYPE, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(EXPENSE_TYPE, "'", "''") & "',"
+    SQL = SQL & "'" & Replace(ACCOUNT_CODE, "'", "''") & "'"
+    SQL = SQL & ")"
+    
+
+    CONN.Execute SQL
+    
+    MSG = "Success"
+    RC = "0"
+    
+MSG_Handle:
+    If RC = "0" Then
+        If Not ObjContext Is Nothing Then ObjContext.SetComplete
+        GoTo End_Handle
+    End If
+
+Err_Handle:
+    If Not ObjContext Is Nothing Then ObjContext.SetAbort
+    
+    If Err.Number <> 0 Then
+        MSG = "[" & strInterruptPoint & "]" & Err.Description
+        Err.Raise Err.Number, "錯誤發生,請通知資訊中心! ", MSG & vbCrLf & SQL
+        On Error GoTo 0
+    Else
+        MSG = RC
+    End If
+
+End_Handle:
+    OCR_UPLOAD = RC
+    Set RS = Nothing
+    Set CONN = Nothing
+End Function
+
+
+
+
+
+

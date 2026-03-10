@@ -1,0 +1,2 @@
+D:\copilot測試\OCRSystemAPI\Backend\obj\Debug\OCRSystemAPI.csproj.AssemblyReference.cache
+D:\copilot測試\OCRSystemAPI\Backend\obj\Debug\OCRSystemAPI.csproj.CoreCompileInputs.cache

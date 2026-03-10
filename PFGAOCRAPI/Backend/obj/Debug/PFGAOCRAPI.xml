@@ -1,0 +1,15 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+PFGAOCRAPI
+</name>
+</assembly>
+<members>
+<member name="M:PFGAOCRAPI.DAOs.ReceiptDAO.SaveOCRToLegacySystem(PFGAOCRAPI.Models.Infors.ReceiptInfor,System.String,System.String,System.String,System.String,System.String@,System.Boolean@)">
+ <summary>
+ 仿照 PFFAAPI 模式，使用呼叫元件（COM Object）將資料寫進資料庫
+ </summary>
+</member>
+</members>
+</doc>

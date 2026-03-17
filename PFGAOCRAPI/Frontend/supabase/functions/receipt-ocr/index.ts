@@ -20,69 +20,241 @@ serve(async (req) => {
     }
 
     const { imageData, filename } = await req.json();
-    
+
     console.log(`Processing receipt OCR for file: ${filename}`);
 
-    const systemPrompt = `你是一個專業的台灣稅務專家與 OCR 辨識助手，專精於精確擷取台灣各種發票（包括：電子發票、三聯式/二聯式收銀機發票、三聯式/二聯式手寫發票）的資訊。
+    const systemPrompt = `# Role
+你是一個精通台灣稅務單據判讀、OCR 多欄位抽取、版面定位的 AI 專家。
+你的任務是從輸入影像中，精確提取每一張憑證的資訊，並以嚴格 JSON 格式輸出。
+你只能根據影像中實際可見內容進行判斷，不可臆測、不可補造、不可輸出 JSON 以外的任何文字。
 
-### 核心辨識邏輯：
-1. **賣方資訊 (Seller Info)**：
-   - **供應商名稱 (supplier_name/vendor)**：尋找位於頂部或發票章（藍色或紅色印章）中的公司名稱。
-   - **供應商統編 (supplier_tax_id/tax_id)**：這是「賣方」的 8 位數字。
-     - *重要*：在手寫發票中，手寫的統編通常是「買受人（客戶）」，請務必從印章或印刷處尋找「賣方」統編。
-2. **日期 (Date Parsing)**：
-   - 格式必須為 YYYY-MM-DD。
-   - **民國年轉換**：若看到 113年，請轉換為 2024 (民國年 + 1911)。
-   - 若發票顯示月份區間（如 113年 9-10月），請嘗試推導具體交易日期，若無具體日期則預設為該區間的首日（如 2024-09-01）。
-3. **發票號碼 (Invoice Number)**：
-   - 格式為 2 碼大寫英文字軌 + 8 碼數字（如 AB-12345678），請移除連字號與空格。
-4. **金額計算 (Amounts)**：
-   - **總額 (total_amount/amount_with_tax)**：指含稅後的最終支付總額。
-   - **稅額辨識邏輯**：
-     - 如果發票有單獨列出「營業稅」或「Tax」，請直接抓取。
-     - 如果是「二聯式」或「電子發票證明聯」，通常總額已含稅，若未列出稅額，請依 5% 營業稅公式計算：`round(總額 / 1.05 * 0.05)`。
-     - **特別注意**：檢查是否有「免稅」(Tax-Free) 或「零稅率」標記，若有，則稅額應為 0。
-5. **細項 (Line Items) 處理規則**：
-   - **簡化彙整原則**：不論發票上有多少筆明細，**請統一彙整為一筆主要項目回傳**。
-   - **命名規範**：請根據發票內容判斷類別，並命名為「[類別名稱] 等一式」（例如：餐飲等一式、辦公耗材等一式、生活百貨等一式）。
-   - **金額對齊**：該彙整項目的 `amount_with_tax` 必須等於發票的總額。
-   - 目的：我們只需要呈現該發票的核心類別與最終總金額，不需要列出所有微小細項。
+# Task
+請從單張影像中辨識所有可見憑證，並完成以下任務：
 
-### 思考過程 (Thought Process)：
-在輸出 JSON 前，請先在並加入 "thought_process" 紀錄：
-- 這是哪種類型的發票？
-- 你在哪個位置找到了發票章或賣方資訊？
-- 你是如何計算或確認稅額與總額的？
+1. 多張識別
+- 若同一張影像中有多張發票或憑證，必須逐張拆分。
+- 每一張憑證都必須輸出為 invoices 陣列中的一個獨立物件。
 
-### 輸出規範：
-請嚴格遵守 JSON 格式並使用指定的鍵值。
+2. 座標輔助
+- 必須輸出 textBlocks。
+- 每個 textBlock 需包含：
+  - text：辨識到的文字
+  - box_2d：[ymin, xmin, ymax, xmax]
+- textBlocks 至少要涵蓋與欄位判定直接相關的主要文字區塊，包括：
+  - 發票號碼
+  - 日期
+  - 賣方名稱
+  - 賣方統編
+  - 買方名稱
+  - 買方統編
+  - 總額
+  - 稅額
+  - 免稅 / 零稅率 / 三聯式 / 二聯式 / 電子發票等關鍵字
+- 座標必須對應影像中實際位置，不可虛構。
+
+3. 民國年轉換
+- 若日期為民國年，必須轉換為西元年。
+- 轉換公式：西元年 = 民國年 + 1911
+- 例如：
+  - 113年 → 2024年
+  - 114/01/15 → 2025-01-15
+
+  # Image Orientation and Layout Handling
+1. 影像中的發票、單據、票券可能出現以下情況：
+- 傾斜拍攝
+- 順時針或逆時針旋轉
+- 上下顛倒
+- 透視變形
+- 部分裁切
+- 多張單據彼此角度不同
+
+2. 你必須先根據文字方向、版面結構、欄位相對位置，自行判斷每張單據的正確閱讀方向，再進行欄位抽取。
+- 不可因影像歪斜而改變欄位語意判定。
+- 必須以「校正後的閱讀順序」理解內容，而不是單純依原始畫面方向讀取。
+
+3. 若同一張影像中有多張單據，必須分別判斷每張單據自己的方向與邊界，不可假設所有單據方向一致。
+
+4. textBlocks 的 box_2d 必須對應原始影像中的實際位置座標。
+- 即使你在理解內容時已先 mentally 校正方向，輸出的 box_2d 仍必須基於原始影像座標，不可輸出校正後的虛擬座標。
+
+5. 若影像有輕微歪斜、旋轉或透視變形，仍需盡量辨識：
+- 發票號碼
+- 日期
+- 賣方名稱
+- 賣方統編
+- 買方名稱
+- 買方統編
+- 總額
+- 稅額
+- 發票類型關鍵字
+
+6. 若因嚴重傾斜、遮擋、模糊或裁切而無法可靠辨識，對應欄位請輸出空字串 "" 或 0，不可猜測。
+
+# General Rules
+1. 只能輸出合法 JSON。
+2. 不可輸出 markdown、說明、註解、前言、結語。
+3. 若欄位無法辨識，請輸出空字串 ""；數值欄位無法辨識則輸出 0。
+4. 不可捏造不存在的公司名、統編、日期、金額、品項。
+5. 同一張發票內若資訊衝突，優先採用：
+   - 清晰印刷 > 印章 > 手寫 > 模糊文字
+6. 若為手開發票，必須特別區分賣方統編與買方統編，不可混淆。
+7. 發票號碼必須去除空格與連字號，統一輸出為：
+   - 2 碼大寫英文字軌 + 8 碼數字
+   - 例如 AB12345678
+8. 日期必須統一輸出為 YYYY-MM-DD。
+9. 金額欄位一律輸出數字，不可帶逗號、空格、貨幣符號。
+
+# Core Extraction Logic
+
+## 1. 賣方資訊 Seller Info
+### supplier_name
+- 優先從發票上方抬頭、店家名稱、公司章、藍色章、紅色章、印刷名稱中尋找。
+- 若同時存在品牌名與公司名，優先取公司名或可對應統編之名稱。
+
+### supplier_tax_id
+- 必須是賣方的 8 位數統一編號。
+- 優先從以下區域尋找：
+  - 發票章
+  - 印刷的賣方資料區
+  - 「統一編號」「統編」「賣方統編」旁
+- 特別注意：
+  - 手寫發票中手寫的統編通常可能是買方統編，不一定是賣方統編。
+  - 不可把買受人統編誤當成賣方統編。
+
+## 2. 買方資訊 Buyer Info
+### buyer_name
+- 只在影像中明確出現時才填入。
+- 若無明確買受人名稱，輸出空字串。
+
+### buyer_tax_id
+- 只在影像中明確出現買受人統編時填入 8 位數字。
+- 若無，輸出空字串。
+
+## 3. 日期 Date Parsing
+- 所有日期輸出格式必須為 YYYY-MM-DD。
+- 若為民國年，轉為西元年。
+- 若發票上僅顯示月份區間，例如：
+  - 113年 9-10月
+- 且無更明確交易日，則輸出該區間首日：
+  - 2024-09-01
+- 若同時出現完整交易日期與月份區間，優先採用完整交易日期。
+
+## 4. 發票號碼 Invoice Number
+- 格式固定為 2 碼大寫英文 + 8 碼數字。
+- 去除空格與連字號。
+- 例如：
+  - AB-12345678 → AB12345678
+  - ab 12345678 → AB12345678
+- 若無法辨識完整格式，輸出空字串。
+
+## 5. 金額 Amounts
+### total_amount
+- 指最終支付總額 / 含稅總額 / 實付金額。
+- 若存在「總計」「合計」「實收」「應付」等欄位，優先取最終支付總額。
+
+### tax_amount
+稅額判定規則如下，必須依序判斷：
+1. 若明確列出「營業稅」「Tax」「稅額」欄位，直接抓取該值。
+2. 若影像中明確出現「免稅」「Tax-Free」「零稅率」，則 tax_amount = 0。
+3. 若為二聯式、電子發票證明聯、收銀機發票，且未明示稅額，則 tax_amount = 0。
+4. 不可自行依 5% 回推稅額。
+5. 若總額可見但稅額不可見且不符合以上條件，tax_amount = 0。
+
+## 6. 細項彙整 Items
+- 不論原始發票有幾筆明細，一律只輸出 1 筆彙整項目。
+- description 命名規則：
+  - 根據內容判斷主要類別，命名為「[類別名稱]等一式」
+- 例如：
+  - 餐飲等一式
+  - 辦公耗材等一式
+  - 生活百貨等一式
+  - 交通費等一式
+  - 運費等一式
+- amount 必須等於 total_amount。
+- 若無法從明細明確判斷類別，可使用較通用名稱：
+  - 商品等一式
+  - 雜項等一式
+
+# Thought Process Rules
+每張發票都必須輸出 thought_process。
+但 thought_process 必須簡短、可驗證、不可冗長，不可輸出推理細節，只能摘要以下內容：
+1. 這是哪一種類型的發票
+2. 你從哪個位置找到賣方資訊
+3. 稅額與總額是從哪個欄位取得或依哪條規則判定
+
+thought_process 必須是 1 段簡短文字，不可條列，不可超出影像可支持的資訊。
+
+# Invoice Type Categories
+根據外觀與內容嚴格判定 invoice_type：
+
+- "00": 電子發票（有 QR Code、條碼、熱感應紙樣式）
+- "01": 三聯式手開發票（橫式複寫紙、大量手寫、有買受人抬頭）
+- "02": 三聯式收銀機發票（長條型，標註三聯式，有買受人統編欄）
+- "03": 二聯式收銀機發票（長條型，無買受人統編欄）
+- "04": 進貨折讓證明單（標題含銷貨退回或進貨折讓）
+- "05": 海關繳納證（標題含海關進出口貨物稅費）
+- "06": 三聯式零稅率發票
+- "07": 進貨零稅率折讓證明單
+- "08": 海關進口代徵退還溢繳營業稅
+- "09": 境外電商不得扣抵電子發票
+- "10": 交通票(高鐵)
+- "11": 交通票(機票)
+- "12": 交通票(客運)
+- "13": 交通票(台鐵)
+
+# Invoice Type Decision Rules
+- 若同時符合「三聯式」與「零稅率」，優先判為 "06"。
+- 若同時符合「折讓證明」與「零稅率」，優先判為 "07"。
+- 若為交通票證，優先判入 10~13，不要誤判成一般電子發票。
+- 若有 QR Code / 條碼，但明確標示為境外電商不得扣抵，判為 "09"。
+- 若資訊不足以精確分類，才退回最接近的類型。
+
+# Output Schema
+請僅輸出以下 JSON 結構，不可增減最外層欄位：
 
 {
-  "lineItems": [
+  "invoices": [
     {
-      "id": "line_001",
-      "category": "0",
-      "vendor": "賣方廠商名稱",
-      "tax_id": "賣方統一編號（8碼純數字）",
-      "date": "YYYY-MM-DD",
-      "invoice_number": "發票號碼（2碼英文+8碼數字）",
-      "amount_with_tax": 總額數字,
-      "input_tax": 稅額數字,
-      "editable": true,
-      "sourceBlockIds": ["b_001"]
+      "thought_process": "簡短摘要",
+      "invoice_type": "00",
+      "supplier_name": "",
+      "supplier_tax_id": "",
+      "buyer_name": "",
+      "buyer_tax_id": "",
+      "is_remodified": false,
+      "is_reused": false,
+      "invoice_date": "",
+      "invoice_number": "",
+      "total_amount": 0,
+      "tax_amount": 0,
+      "items": [
+        {
+          "description": "",
+          "amount": 0
+        }
+      ]
     }
   ],
-  "ocrBlocks": [
+  "textBlocks": [
     {
-      "id": "b_001",
-      "page": 1,
-      "text": "辨識出的關鍵文字",
-      "type": "amount",
-      "confidence": 0.95,
-      "bbox": { "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05 }
+      "text": "",
+      "box_2d": [0, 0, 0, 0]
     }
   ]
-}`;
+}
+
+# Final Validation
+輸出前請自行檢查：
+1. 是否為合法 JSON
+2. invoices 是否為陣列
+3. 每張發票是否獨立成物件
+4. 發票號碼是否已去除空格與連字號
+5. 日期是否已轉成 YYYY-MM-DD
+6. 民國年是否已轉西元
+7. items 是否只保留 1 筆
+8. items[0].amount 是否等於 total_amount
+9. tax_amount 是否符合稅額規則
+10. textBlocks 是否包含關鍵欄位對應文字與座標``;
   ],
   "metadata": {
     "vendor": "賣方廠商名稱",
@@ -93,17 +265,20 @@ serve(async (req) => {
 }
 
 【category 憑證種類代碼】
-- 0: 電子發票（有 QR Code 或條碼）
-- 1: 三聯式手開發票
-- 2: 三聯式收銀機發票
-- 3: 二聯式收銀機發票（含機票、車票、水電費收據）
-- 4: 進貨折讓證明單
-- 5: 海關進出口貨物稅費繳納證
-- 6: 三聯式零稅率發票
-- 7: 進貨零稅率折讓證明單
-- 8: 海關進口代徵退還溢繳營業稅
-- 9: 境外電商及不得扣抵之電子發票
-
+- 00: 電子發票（有 QR Code 或條碼）
+- 01: 三聯式手開發票
+- 02: 三聯式收銀機發票
+- 03: 二聯式收銀機發票（含機票、車票、水電費收據）
+- 04: 進貨折讓證明單
+- 05: 海關進出口貨物稅費繳納證
+- 06: 三聯式零稅率發票
+- 07: 進貨零稅率折讓證明單
+- 08: 海關進口代徵退還溢繳營業稅
+- 09: 境外電商及不得扣抵之電子發票
+- 10: 交通票(高鐵)
+- 11: 交通票(機票)
+- 12: 交通票(客運)
+- 13: 交通票(台鐵)
 【ocrBlocks type 類型】
 title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 
@@ -197,7 +372,7 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
-    
+
     if (!content) {
       throw new Error('No content returned from AI');
     }
@@ -209,7 +384,7 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
     try {
       // Try to extract JSON from markdown code blocks or raw JSON
       let jsonString = content;
-      
+
       // Remove markdown code blocks if present
       const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (codeBlockMatch) {
@@ -221,14 +396,14 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
           jsonString = jsonObjectMatch[0];
         }
       }
-      
+
       // Try to fix truncated JSON by closing open brackets
       let fixedJson = jsonString;
       const openBraces = (fixedJson.match(/\{/g) || []).length;
       const closeBraces = (fixedJson.match(/\}/g) || []).length;
       const openBrackets = (fixedJson.match(/\[/g) || []).length;
       const closeBrackets = (fixedJson.match(/\]/g) || []).length;
-      
+
       // Add missing closing brackets
       for (let i = 0; i < openBrackets - closeBrackets; i++) {
         fixedJson += ']';
@@ -236,130 +411,76 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
       for (let i = 0; i < openBraces - closeBraces; i++) {
         fixedJson += '}';
       }
-      
+
       extractedData = JSON.parse(fixedJson);
     } catch (parseError) {
       console.error('Error parsing AI response:', parseError);
       console.error('Raw content:', content.substring(0, 500));
-      
+
       // Return minimal valid structure if parsing fails
       extractedData = {
-        lineItems: [],
-        ocrBlocks: [],
-        metadata: {}
+        invoices: [],
+        textBlocks: []
       };
     }
 
-    // Validate and format ocrBlocks
-    const ocrBlocks = (extractedData.ocrBlocks || []).map((block: any, index: number) => {
-      const bbox = block.bbox || {};
+    // New Parsing Logic for ocrSystemPrompt.ts output structure
+
+    // 1. Process textBlocks (mapped from textBlocks)
+    const ocrBlocks = (extractedData.textBlocks || []).map((block: any, index: number) => {
+      const box_2d = Array.isArray(block.box_2d) ? block.box_2d : [0, 0, 0, 0];
+      // Convert box_2d [ymin, xmin, ymax, xmax] to bbox {x, y, w, h}
+      // Assuming coordinates are 0-1000 or normalized 0-1
+      const ymin = box_2d[0] / 1000;
+      const xmin = box_2d[1] / 1000;
+      const ymax = box_2d[2] / 1000;
+      const xmax = box_2d[3] / 1000;
+
       return {
-        id: block.id || `b_${String(index + 1).padStart(3, '0')}`,
-        page: block.page || 1,
+        id: `b_${String(index + 1).padStart(3, '0')}`,
+        page: 1,
         text: block.text || '',
-        type: block.type || 'other',
-        confidence: typeof block.confidence === 'number' ? block.confidence : 0.8,
+        type: 'other', // Default as the new prompt doesn't specify type per block
+        confidence: 0.9,
         bbox: {
-          x: typeof bbox.x === 'number' ? Math.max(0, Math.min(1, bbox.x)) : 0.1,
-          y: typeof bbox.y === 'number' ? Math.max(0, Math.min(1, bbox.y)) : 0.1 + index * 0.08,
-          w: typeof bbox.w === 'number' ? Math.max(0.01, Math.min(1, bbox.w)) : 0.8,
-          h: typeof bbox.h === 'number' ? Math.max(0.01, Math.min(1, bbox.h)) : 0.04
+          x: xmin,
+          y: ymin,
+          w: Math.max(0.01, xmax - xmin),
+          h: Math.max(0.01, ymax - ymin)
         }
       };
     });
 
-    // Create a map of block IDs for validation
-    const blockIdSet = new Set(ocrBlocks.map((b: any) => b.id));
-
-    // Get vendor and tax_id from metadata for default values
-    const metadataVendor = extractedData.metadata?.vendor || extractedData.metadata?.vendor_name || '';
-    const metadataTaxId = extractedData.metadata?.tax_id || null;
-
-    // Map lineItems with validated source block references
-    const lineItems = (extractedData.lineItems || []).map((item: any, index: number) => {
-      // Validate sourceBlockIds - only include IDs that exist in ocrBlocks
-      let sourceBlockIds = Array.isArray(item.sourceBlockIds) 
-        ? item.sourceBlockIds.filter((id: string) => blockIdSet.has(id))
-        : [];
-      
-      // If no valid sourceBlockIds, try to find related blocks
-      if (sourceBlockIds.length === 0) {
-        const relatedBlocks = ocrBlocks.filter((block: any) => 
-          block.text.includes(String(item.amount_with_tax)) || 
-          block.text.includes(item.invoice_number) ||
-          block.type === 'amount' ||
-          block.type === 'invoice_number' ||
-          block.type === 'total'
-        ).slice(0, 2);
-        sourceBlockIds = relatedBlocks.map((b: any) => b.id);
-      }
-
-      // Validate tax_id - must be 8 digits only
-      let taxId = item.tax_id || metadataTaxId;
-      if (taxId && !/^\d{8}$/.test(taxId)) {
-        taxId = null;
-      }
-
-      // Parse amount_with_tax
-      const amountWithTax = typeof item.amount_with_tax === 'number' 
-        ? item.amount_with_tax 
-        : (typeof item.amount === 'number' ? item.amount : Number(item.amount_with_tax || item.amount) || 0);
-      
-      // Parse input_tax (default to 5% of amount if not provided)
-      const inputTax = typeof item.input_tax === 'number' 
-        ? item.input_tax 
-        : Math.round(amountWithTax - amountWithTax / 1.05);
-
-      // Clean and validate invoice_number - must be 2 letters + 8 digits
-      let invoiceNumber = item.invoice_number || null;
-      if (invoiceNumber) {
-        // Remove dashes, spaces, and other non-alphanumeric characters
-        invoiceNumber = invoiceNumber.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        // Validate format: 2 letters + 8 digits
-        if (!/^[A-Z]{2}\d{8}$/.test(invoiceNumber)) {
-          // Try to extract valid pattern from the string
-          const match = invoiceNumber.match(/([A-Z]{2})(\d{8})/);
-          invoiceNumber = match ? match[1] + match[2] : null;
-        }
-      }
+    // 2. Process invoices (mapped to lineItems and metadata)
+    const lineItems = (extractedData.invoices || []).map((inv: any, index: number) => {
+      // Find related blocks for this invoice if possible (simplified)
+      const sourceBlockIds = ocrBlocks
+        .filter(b => b.text.includes(inv.invoice_number) || b.text.includes(String(inv.total_amount)))
+        .map(b => b.id)
+        .slice(0, 3);
 
       return {
-        id: item.id || `line_${String(index + 1).padStart(3, '0')}`,
-        category: item.category || '0',
-        vendor: item.vendor || metadataVendor || '未知廠商',
-        tax_id: taxId,
-        date: item.date || extractedData.metadata?.date || null,
-        invoice_number: invoiceNumber,
-        amount_with_tax: String(amountWithTax),
-        input_tax: String(inputTax),
+        id: `line_${String(index + 1).padStart(3, '0')}`,
+        category: inv.invoice_type || '0',
+        vendor: inv.supplier_name || '未知廠商',
+        tax_id: inv.supplier_tax_id || null,
+        date: inv.invoice_date || null,
+        invoice_number: inv.invoice_number || null,
+        amount_with_tax: String(inv.total_amount || 0),
+        input_tax: String(inv.tax_amount || 0),
         editable: true,
-        sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : [ocrBlocks[0]?.id].filter(Boolean)
+        sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : (ocrBlocks.length > 0 ? [ocrBlocks[0].id] : [])
       };
     });
 
-    // If no lineItems but we have a total, create one line item
-    if (lineItems.length === 0 && extractedData.metadata?.total_amount) {
-      const totalBlocks = ocrBlocks.filter((b: any) => b.type === 'total' || b.type === 'amount');
-      const totalAmount = extractedData.metadata.total_amount;
-      lineItems.push({
-        id: 'line_001',
-        category: '0',
-        vendor: metadataVendor || '未知廠商',
-        tax_id: metadataTaxId,
-        date: extractedData.metadata?.date || null,
-        invoice_number: null,
-        amount_with_tax: String(totalAmount),
-        input_tax: String(Math.round(totalAmount - totalAmount / 1.05)),
-        editable: true,
-        sourceBlockIds: totalBlocks.length > 0 ? [totalBlocks[0].id] : []
-      });
-    }
-
-    // Validate metadata tax_id
-    let finalTaxId = extractedData.metadata?.tax_id || null;
-    if (finalTaxId && !/^\d{8}$/.test(finalTaxId)) {
-      finalTaxId = null;
-    }
+    // Use the first invoice for top-level metadata
+    const firstInvoice = extractedData.invoices?.[0] || {};
+    const metadata = {
+      vendor: firstInvoice.supplier_name || null,
+      tax_id: firstInvoice.supplier_tax_id || null,
+      date: firstInvoice.invoice_date || null,
+      total_amount: firstInvoice.total_amount || 0
+    };
 
     return new Response(
       JSON.stringify({
@@ -367,27 +488,15 @@ title/vendor/date/amount/item/tax_id/total/subtotal/tax/invoice_number/other
         data: {
           lineItems,
           ocrBlocks,
-          metadata: {
-            vendor: metadataVendor || null,
-            tax_id: finalTaxId,
-            date: extractedData.metadata?.date || null,
-            total_amount: typeof extractedData.metadata?.total_amount === 'number' 
-              ? extractedData.metadata.total_amount 
-              : (typeof extractedData.metadata?.total === 'number' ? extractedData.metadata.total : null)
-          }
+          metadata
+        } catch(error) {
+          console.error('Error in receipt-ocr function:', error);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error occurred'
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         }
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('Error in receipt-ocr function:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-});
+      });

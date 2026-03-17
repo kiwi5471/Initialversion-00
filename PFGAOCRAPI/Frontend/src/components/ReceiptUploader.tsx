@@ -29,7 +29,7 @@ export function ReceiptUploader({ onFilesAdd, disabled, model }: ReceiptUploader
   const processFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
-      
+
       setIsConverting(true);
       const uploadedFiles: UploadedFileItem[] = [];
 
@@ -39,14 +39,14 @@ export function ReceiptUploader({ onFilesAdd, disabled, model }: ReceiptUploader
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
           console.log('[Upload] Processing file:', file.name, 'type:', file.type);
-          
+
           if (isPDF(file)) {
             console.log('[Upload] Detected PDF, converting...');
 
             // 將 PDF 拆頁，每頁各自上傳一個單頁 PDF 到伺服器
             splitPDFIntoPages(file).then(pages => {
               const apiBase = getApiBase();
-              const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
+              const endpoint = `${apiBase}/ocr/save-temp`;
               const userInfo = getURLUserInfo();
               const ext = '.pdf';
               const baseName = file.name.toLowerCase().endsWith('.pdf')
@@ -89,7 +89,7 @@ export function ReceiptUploader({ onFilesAdd, disabled, model }: ReceiptUploader
         }
 
         console.log('[Upload] Total files processed:', uploadedFiles.length);
-        
+
         if (uploadedFiles.length > 0) {
           onFilesAdd(uploadedFiles);
         }
@@ -193,9 +193,9 @@ export function ReceiptUploader({ onFilesAdd, disabled, model }: ReceiptUploader
                 支援多選檔案（JPG、PNG、WEBP、PDF）
               </p>
             </div>
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={handleButtonClick}
               className="gap-2"
             >

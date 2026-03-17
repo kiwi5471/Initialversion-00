@@ -158,21 +158,25 @@ const recognizeWithGPT = async (file: File, selectedModel?: string): Promise<{ e
 // 將 invoice_type 代碼對映為文字
 const invoiceTypeLabel = (code: string): string => {
   const map: Record<string, string> = {
-    "0": "電子發票",
-    "1": "三聯式手開發票",
-    "2": "三聯式收銀機發票",
-    "3": "二聯式收銀機發票",
-    "4": "進貨折讓證明單",
-    "5": "海關進出口貨物稅費繳納證",
-    "6": "三聯式零稅率發票",
-    "7": "進貨零稅率折讓證明單",
-    "8": "海關進口代徵退還溢繳營業稅",
-    "9": "境外電商不得扣抵電子發票",
+    "00": "電子發票",
+    "01": "三聯式手開發票",
+    "02": "三聯式收銀機發票",
+    "03": "二聯式收銀機發票",
+    "04": "進貨折讓證明單",
+    "05": "海關進出口貨物稅費繳納證",
+    "06": "三聯式零稅率發票",
+    "07": "進貨零稅率折讓證明單",
+    "08": "海關進口代徵退還溢繳營業稅",
+    "09": "境外電商不得扣抵電子發票",
+    "10": "交通票(高鐵)",
+    "11": "交通票(機票)",
+    "12": "交通票(客運)",
+    "13": "交通票(台鐵)",
   };
   return map[code] || code;
 };
 
-const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }: FileUploaderProps) => {
+const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model: modelProps }: FileUploaderProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [isConvertingPDF, setIsConvertingPDF] = useState(false);
@@ -195,19 +199,19 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
     for (const file of fileArray) {
       if (isPDF(file)) {
         setIsConvertingPDF(true);
-        
+
         // 立即將原始 PDF 備份到伺服器
         fileToBase64(file).then(base64 => {
           const rawBase64 = base64.split(',')[1];
           const apiBase = getApiBase();
-          const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
+          const endpoint = `${apiBase}/ocr/save-temp`;
           const userInfo = getURLUserInfo();
 
           fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              fileName: file.name, 
+            body: JSON.stringify({
+              fileName: file.name,
               base64Data: rawBase64,
               ...userInfo,
               model: model
@@ -222,7 +226,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
               file: page.file,
               preview: page.imageUrl,
               // 加入標記避免重複備份 JPG 頁面
-              isPdfPage: true 
+              isPdfPage: true
             });
           });
         } catch (err) {
@@ -304,39 +308,54 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
       });
       return;
     }
-    
+
     setIsProcessing(true);
     const startTime = Date.now();
     const config = await getAppConfig();
-    
+    const model = modelProps || config.model;
+
     try {
       const allEntries: ExpenseEntry[] = [];
       let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-      
+
       for (const item of selectedFiles) {
         const fileStartTime = Date.now();
-        // 同步備份檔案到本地資料夾 (僅非 PDF 頁面才備份圖片，PDF 原始檔已在 validateFiles 處理)
-        if (!item.isPdfPage) {
-          fileToBase64(item.file).then(base64 => {
-            const rawBase64 = base64.split(',')[1];
-            const apiBase = getApiBase();
-            const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
-            const userInfo = getURLUserInfo();
+        let serverFilePath = "";
 
-            fetch(endpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                fileName: item.file.name, 
-                base64Data: rawBase64,
-                ...userInfo,
-                model: model
-              })
-            }).catch(err => console.error('備份檔案失敗:', err));
+        // 將檔案透過後端 API 儲存至 uploaded_files (暫存區)
+        try {
+          const base64 = await fileToBase64(item.file);
+          const rawBase64 = base64.split(',')[1];
+          const apiBase = getApiBase();
+          const endpoint = `${apiBase}/ocr/save-temp`;
+
+          const saveRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: item.file.name,
+              base64Data: rawBase64
+            })
           });
+
+          if (saveRes.ok) {
+            const saveResult = await saveRes.json();
+            serverFilePath = saveResult.FilePath;
+            console.log(`[Upload] File saved to server: ${serverFilePath}`);
+          } else {
+            console.error(`[Upload] Save failed with HTTP ${saveRes.status}`);
+          }
+        } catch (err) {
+          console.error('儲存暫存檔失敗:', err);
         }
 
         const { entries, usage, invoiceList: fileInvoices } = await recognizeWithGPT(item.file, model);
+
+        // 將伺服器路徑注入到每個辨識出的 entry 中
+        entries.forEach(entry => {
+          entry.file_path = serverFilePath;
+        });
+
         const fileDuration = (Date.now() - fileStartTime) / 1000;
         allEntries.push(...entries);
 
@@ -361,7 +380,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: logMsg, detail: logDetail, ...userInfoForLog, model })
-          }).catch(() => {});
+          }).catch(() => { });
         }
 
         if (usage) {
@@ -370,12 +389,12 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
           totalUsage.total_tokens += usage.total_tokens || 0;
         }
       }
-      
+
       const endTime = Date.now();
       const duration = (endTime - startTime) / 1000;
       const logMsg = `Single/Portal Upload took ${duration}s for ${allEntries.length} entries (from ${selectedFiles.length} files). Tokens: Prompt=${totalUsage.prompt_tokens}, Completion=${totalUsage.completion_tokens}, Total=${totalUsage.total_tokens}`;
       console.log(`[OCR Performance] ${logMsg}`);
-      
+
       // 自動傳送到日誌伺服器
       const apiBase = getApiBase();
       const logEndpoint = import.meta.env.DEV ? `${apiBase}/log` : `${apiBase}/save_ocr.asp`;
@@ -384,7 +403,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
       fetch(logEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: logMsg,
           ...userInfo,
           model: model
@@ -402,7 +421,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
         tax_amount: String(entry.tax_amount || 0),
         amount_with_tax: String(entry.amount_inclusive_tax || 0),
         scanned_filename: entry.filename || "",
-        file_path: "",
+        file_path: entry.file_path || "",
         user_id: userInfo.userId || "",
         username: userInfo.username || "",
         model: model || config.model,
@@ -415,7 +434,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
       fetch(logEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: "[ExportData] Copy JSON",
           exportData,
           ...userInfo,
@@ -424,14 +443,14 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
       }).catch(err => console.error('無法傳送 ExportData 日誌:', err));
 
       onFilesProcessed(allEntries);
-      
+
       // Cleanup previews
       selectedFiles.forEach(f => {
         if (f.preview.startsWith('blob:')) URL.revokeObjectURL(f.preview);
       });
       setSelectedFiles([]);
       setIsProcessing(false);
-      
+
       toast({
         title: "辨識完成",
         description: `已成功透過 ${config.model} 處理 ${allEntries.length} 筆資料。`,
@@ -488,6 +507,7 @@ const FileUploader = ({ onFilesProcessed, isProcessing, setIsProcessing, model }
               </span>
               <input
                 id="file-upload"
+                name="file-upload"
                 type="file"
                 className="hidden"
                 multiple

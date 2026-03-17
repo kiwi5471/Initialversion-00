@@ -49,11 +49,15 @@ const server = http.createServer((req, res) => {
             logEntry += `----------------------------------------------------------------\n`;
           } else if (detail && typeof detail === 'object') {
             // 結構化欄位格式化輸出
-            const fields = ['檔案','耗時秒','類別','廠商','統編','日期','發票號碼','含稅金額','稅額'];
+            const fields = [
+              '檔案', '耗時秒', '類別', '廠商', '統編', '買受人', 
+              '買受統編', '是否修改', '是否重複', '日期', '發票號碼', 
+              '含稅金額', '稅額', '稅額類型'
+            ];
             fields.forEach(f => {
-              if (detail[f] !== undefined && detail[f] !== '') {
-                logEntry += `  ${f}: ${detail[f]}\n`;
-              }
+              // 不論有無值都顯示欄位，以便觀察辨識準確度
+              const val = (detail[f] !== undefined && detail[f] !== null) ? detail[f] : "";
+              logEntry += `  ${f}: ${val}\n`;
             });
             logEntry += `----------------------------------------------------------------\n`;
           } else if (detail) {

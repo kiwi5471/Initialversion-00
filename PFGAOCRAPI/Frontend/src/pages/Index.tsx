@@ -20,7 +20,7 @@ const Index = () => {
   const [entries, setEntries] = useState<ExpenseEntry[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [selectedModel, setSelectedModel] = useState("gpt-5.2");
+  const [selectedModel, setSelectedModel] = useState("gpt-5.4");
   
   // Developer Mode States
   const [mode, setMode] = useState<"user" | "dev">("user");
@@ -162,7 +162,7 @@ const Index = () => {
           console.log(logMsg, logDetail);
 
           const targetApiBase = getApiBase();
-          const logEndpoint = import.meta.env.DEV ? `${targetApiBase}/log` : `${targetApiBase}/save_ocr.asp`;
+          const logEndpoint = `${targetApiBase}/ocr/log`;
 
           await fetch(logEndpoint, {
             method: "POST",
@@ -176,7 +176,7 @@ const Index = () => {
           console.error(logMsg, e.message);
           
           const targetLogApiBase = getApiBase();
-          const logEndpoint = import.meta.env.DEV ? `${targetLogApiBase}/log` : `${targetLogApiBase}/save_ocr.asp`;
+          const logEndpoint = `${targetLogApiBase}/ocr/log`;
 
           await fetch(logEndpoint, {
             method: "POST",
@@ -206,7 +206,7 @@ const Index = () => {
               const logMsg = `[DevMode] Iteration ${i+1}, File: ${fileData.fileName} | Status: PDF Conversion Failed (${pdfErr.message}) | Took: 0s`;
               console.error(logMsg);
               const logApiBase = getApiBase();
-              const logEndpoint = import.meta.env.DEV ? `${logApiBase}/log` : `${logApiBase}/save_ocr.asp`;
+              const logEndpoint = `${logApiBase}/ocr/log`;
               await fetch(logEndpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -278,8 +278,8 @@ const Index = () => {
                 className="flex gap-4"
               >
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="gpt-5.2" id="gpt-5.2" />
-                  <Label htmlFor="gpt-5.2" className="cursor-pointer font-bold text-red-700">GPT-5.2</Label>
+                  <RadioGroupItem value="gpt-5.4" id="gpt-5.4" />
+                  <Label htmlFor="gpt-5.4" className="cursor-pointer font-bold text-red-700">GPT-5.4</Label>
                 </div>
               </RadioGroup>
             </div>
@@ -290,16 +290,20 @@ const Index = () => {
           <Card className="p-6 shadow-lg border-2 border-orange-200 bg-orange-50/10">
             <div className="flex flex-col md:flex-row gap-4 items-end">
               <div className="flex-1 space-y-2">
-                <Label>本機資料夾路徑</Label>
+                <Label htmlFor="folderPath">本機資料夾路徑</Label>
                 <Input 
+                  id="folderPath"
+                  name="folderPath"
                   placeholder="例如: D:\Invoices\Test" 
                   value={devConfig.folderPath}
                   onChange={(e) => setDevConfig({...devConfig, folderPath: e.target.value})}
                 />
               </div>
               <div className="w-32 space-y-2">
-                <Label>辨識次數</Label>
+                <Label htmlFor="iterations">辨識次數</Label>
                 <Input 
+                  id="iterations"
+                  name="iterations"
                   type="number" 
                   min="1" 
                   value={devConfig.iterations}

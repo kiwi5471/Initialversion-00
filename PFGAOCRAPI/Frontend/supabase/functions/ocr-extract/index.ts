@@ -1,5 +1,5 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { OCR_SYSTEM_PROMPT } from "../../../src/lib/ocrSystemPrompt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,35 +21,7 @@ serve(async (req) => {
 
     console.log(`Processing OCR for file: ${filename}`);
 
-    const systemPrompt = `你是一個專業的台灣財務票據辨識系統，專精於從發票與憑證中擷取精確資訊。
-
-### 辨識規則：
-1. **供應商資訊**：必須擷取「賣方」的名稱與 8 位數字統一編號。請勿誤抓買受人資訊。
-2. **日期**：若為中華民國年份 (如 113)，請自動加上 1911 轉換為西元格式 (YYYY-MM-DD)。
-3. **金額**：
-   - 「含稅總額」(amount_inclusive_tax) 是最終支付金額。
-   - **稅額處理**：
-     - 若憑證有明列「營業稅」或「VAT」，優先使用該數字。
-     - 若無明列且為一般發票，請依 5% 稅率倒算：`round(含稅總額 / 1.05 * 0.05)`。
-     - 注意：若標註為「免稅」或「非營業用」，稅額應為 0。
-   - 「未稅金額」(amount_exclusive_tax) 為總額減去稅額。
-
-### 細項彙整規則：
-- 如果發票存在多個品項，請將其彙整為一筆主要描述，並加上「等一式」。
-- `item_description` 例如：「餐飲等一式」、「生活雜物等一式」。
-- 該項目的金額請直接使用總計金額。
-
-### 輸出格式：
-請以 JSON 格式回覆：
-{
-  "supplier_tax_id": "8位數字或null",
-  "supplier_name": "供應商名稱",
-  "invoice_date": "YYYY-MM-DD",
-  "item_description": "品項描述或合計項目",
-  "amount_exclusive_tax": 數字,
-  "tax_amount": 數字,
-  "amount_inclusive_tax": 數字
-}`;
+    const systemPrompt = OCR_SYSTEM_PROMPT;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",

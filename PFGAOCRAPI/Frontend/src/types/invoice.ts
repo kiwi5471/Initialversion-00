@@ -10,6 +10,9 @@ export interface InvoiceData {
   amount_inclusive_tax: number;
   page_number: number;
   model?: string;
+  category?: string;
+  file_path?: string;
+  invoice_type?: string;
 }
 
 export interface ExpenseEntry extends InvoiceData {

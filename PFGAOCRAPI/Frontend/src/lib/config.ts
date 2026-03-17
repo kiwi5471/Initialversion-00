@@ -9,8 +9,8 @@ export const getAppConfig = async (): Promise<AppConfig> => {
   if (cachedConfig) return cachedConfig;
 
   try {
-    // 使用相對路徑，確保在子目錄也能抓到
-    const response = await fetch('api_config.json');
+    // 使用 ./ 確保在任何子目錄下都能正確載入
+    const response = await fetch('./api_config.json');
     if (response.ok) {
       const config = await response.json();
       cachedConfig = {

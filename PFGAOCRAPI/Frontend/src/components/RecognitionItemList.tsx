@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LineItem, DOCUMENT_CATEGORIES } from "@/types/recognition";
+import { LineItem, DOCUMENT_CATEGORIES, TAX_TYPE_OPTIONS } from "@/types/recognition";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Check, Pencil, X, Save, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -58,6 +59,7 @@ export function RecognitionItemList({
   const [editAmountStrings, setEditAmountStrings] = useState({ amount_with_tax: "", input_tax: "" });
   const [deleteWarningItem, setDeleteWarningItem] = useState<LineItem | null>(null);
   const [deleteFormAmounts, setDeleteFormAmounts] = useState({ amount_with_tax: "", input_tax: "" });
+  const [reuseConfirmItem, setReuseConfirmItem] = useState<{ id: string; checked: boolean } | null>(null);
   const [validationErrors, setValidationErrors] = useState<{ tax_id?: string; invoice_number?: string }>({});
 
   // Reset editing state when items change (e.g., switching files)
@@ -145,13 +147,18 @@ export function RecognitionItemList({
   const startEditing = (item: LineItem) => {
     updateEditingId(item.id);
     setEditForm({
-      category: item.category,
-      vendor: item.vendor,
-      tax_id: item.tax_id,
-      date: item.date,
-      invoice_number: item.invoice_number,
-      amount_with_tax: item.amount_with_tax,
-      input_tax: item.input_tax,
+      category: item.category || "0",
+      vendor: item.vendor || "",
+      tax_id: item.tax_id || "",
+      buyer_name: item.buyer_name || "",
+      buyer_tax_id: item.buyer_tax_id || "",
+      is_remodified: !!item.is_remodified,
+      is_reused: !!item.is_reused,
+      date: item.date || "",
+      invoice_number: item.invoice_number || "",
+      amount_with_tax: String(item.amount_with_tax || "0"),
+      input_tax: String(item.input_tax || "0"),
+      tax_type: item.tax_type || "",
     });
     setEditAmountStrings({
       amount_with_tax: String(item.amount_with_tax),
@@ -178,6 +185,7 @@ export function RecognitionItemList({
       ...editForm,
       amount_with_tax: editAmountStrings.amount_with_tax || "0",
       input_tax: editAmountStrings.input_tax || "0",
+      is_remodified: true, // 自動標記為已修改
     };
     
     onItemUpdate(id, updatedForm);
@@ -259,17 +267,22 @@ export function RecognitionItemList({
       </Button>
 
       <div className="flex-1 overflow-auto border rounded-md">
-        <div className="min-w-[1200px]">
+        <div className="min-w-[1850px]">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[120px]">類別</TableHead>
-                <TableHead className="min-w-[200px]">廠商</TableHead>
-                <TableHead className="w-[160px]">統編</TableHead>
-                <TableHead className="w-[160px]">日期</TableHead>
-                <TableHead className="w-[180px]">發票號碼</TableHead>
-                <TableHead className="w-[140px] text-right">含稅金額</TableHead>
-                <TableHead className="w-[120px] text-right">稅額</TableHead>
+                <TableHead className="min-w-[220px]">廠商</TableHead>
+                <TableHead className="w-[220px]">統編</TableHead>
+                <TableHead className="min-w-[220px]">買受人</TableHead>
+                <TableHead className="w-[220px]">買受統編</TableHead>
+                <TableHead className="w-[150px]">日期</TableHead>
+                <TableHead className="w-[220px]">發票號碼</TableHead>
+                <TableHead className="w-[170px] text-right">含稅金額</TableHead>
+                <TableHead className="w-[140px] text-right">稅額</TableHead>
+                <TableHead className="w-[140px] text-center">稅額類型</TableHead>
+                <TableHead className="w-[100px] text-center">修改</TableHead>
+                <TableHead className="w-[100px] text-center">重複選用</TableHead>
                 <TableHead className="w-[120px] text-center">操作</TableHead>
               </TableRow>
           </TableHeader>
@@ -326,6 +339,26 @@ export function RecognitionItemList({
                     </TableCell>
                     <TableCell>
                       <Input
+                        value={editForm.buyer_name || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, buyer_name: e.target.value }))}
+                        onKeyDown={handleInputKeyDown}
+                        placeholder="買受人"
+                        className="h-10 text-sm"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={editForm.buyer_tax_id || ""}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, buyer_tax_id: e.target.value.replace(/\D/g, '').slice(0, 8) }))}
+                        onKeyDown={handleInputKeyDown}
+                        placeholder="買受統編"
+                        maxLength={8}
+                        inputMode="numeric"
+                        className="h-10 text-sm font-mono"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="date"
                         value={editForm.date || ""}
                         onChange={(e) => setEditForm(prev => ({ ...prev, date: e.target.value || null }))}
@@ -379,6 +412,43 @@ export function RecognitionItemList({
                       />
                     </TableCell>
                     <TableCell>
+                      <Select
+                        value={editForm.tax_type && editForm.tax_type !== "" ? editForm.tax_type : "none"}
+                        onValueChange={(value) => setEditForm(prev => ({ ...prev, tax_type: value === "none" ? "" : value }))}
+                      >
+                        <SelectTrigger className="h-10 text-sm w-full">
+                          <SelectValue placeholder="自動" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">(自動判斷)</SelectItem>
+                          {TAX_TYPE_OPTIONS.map((t) => (
+                            <SelectItem key={t.value} value={t.value}>
+                              {t.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={editForm.is_remodified || false}
+                        disabled
+                        className="opacity-50 cursor-not-allowed"
+                      />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={editForm.is_reused || false}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setReuseConfirmItem({ id: item.id, checked: true });
+                          } else {
+                            setEditForm(prev => ({ ...prev, is_reused: false }));
+                          }
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center justify-center gap-1">
                         <Button
                           variant="ghost"
@@ -425,6 +495,12 @@ export function RecognitionItemList({
                     {item.tax_id || "-"}
                   </TableCell>
                   <TableCell className="text-xs py-2">
+                    {item.buyer_name || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 font-mono">
+                    {item.buyer_tax_id || "-"}
+                  </TableCell>
+                  <TableCell className="text-xs py-2">
                     {item.date || "-"}
                   </TableCell>
                   <TableCell className="text-xs py-2 font-mono">
@@ -435,6 +511,15 @@ export function RecognitionItemList({
                   </TableCell>
                   <TableCell className="text-xs py-2 text-right">
                     {formatAmount(item.input_tax)}
+                  </TableCell>
+                  <TableCell className="text-xs py-2 text-center font-mono">
+                    {item.tax_type ? TAX_TYPE_OPTIONS.find(t => t.value === item.tax_type)?.label ?? item.tax_type : "-"}
+                  </TableCell>
+                  <TableCell className="text-center py-2">
+                    <Checkbox checked={item.is_remodified || false} disabled />
+                  </TableCell>
+                  <TableCell className="text-center py-2">
+                    <Checkbox checked={item.is_reused || false} disabled />
                   </TableCell>
                   <TableCell className="py-2">
                     <div className="flex items-center justify-center gap-0.5">
@@ -530,6 +615,36 @@ export function RecognitionItemList({
               className={!canDeleteNow() ? "opacity-50 cursor-not-allowed" : ""}
             >
               確認刪除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reuse Confirm Dialog */}
+      <AlertDialog 
+        open={!!reuseConfirmItem} 
+        onOpenChange={(open) => !open && setReuseConfirmItem(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>確認重複選用</AlertDialogTitle>
+            <AlertDialogDescription>
+              該欄位由財務人員勾選，是否確認勾選？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setReuseConfirmItem(null)}>
+              否
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (reuseConfirmItem) {
+                  setEditForm(prev => ({ ...prev, is_reused: true }));
+                  setReuseConfirmItem(null);
+                }
+              }}
+            >
+              是
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

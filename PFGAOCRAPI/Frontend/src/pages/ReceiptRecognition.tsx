@@ -10,7 +10,6 @@ import { ExportButtons } from "@/components/ExportButtons";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RotateCcw, Play, Loader2, Terminal, Pause, Square } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getAppConfig, getOpenAIApiBase } from "@/lib/config";
 import { OCR_SYSTEM_PROMPT } from "@/lib/ocrSystemPrompt";
@@ -18,7 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { safeJsonParse, base64ToFile, getURLUserInfo, getApiBase } from "@/lib/utils";
+import { safeJsonParse, base64ToFile, getURLUserInfo, getApiBase, validateOCRFieldLengths } from "@/lib/utils";
 import { convertPDFToImages } from "@/lib/pdfUtils";
 
 type Step = 'upload' | 'result';
@@ -39,13 +38,16 @@ export default function ReceiptRecognition() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [selectedModel, setSelectedModel] = useState("gpt-5.2");
+  const [selectedModel, setSelectedModel] = useState("gpt-5.4");
 
   // Developer Mode States
   const resolveInvoiceCategory = (invoice: any): string => {
-    const raw = invoice?.invoice_type ?? invoice?.category ?? "0";
+    const raw = invoice?.invoice_type ?? invoice?.category;
+    if (raw === undefined || raw === null) return "00";
     const normalized = String(raw).trim();
-    return /^\d$/.test(normalized) ? normalized : "0";
+    // 如果是 0~9 的單碼，補 0
+    if (/^\d$/.test(normalized)) return `0${normalized}`;
+    return normalized;
   };
   const [mode, setMode] = useState<"user" | "dev">("user");
   const [devConfig, setDevConfig] = useState({
@@ -70,7 +72,7 @@ export default function ReceiptRecognition() {
 
     try {
       const apiBase = getApiBase();
-      const endpoint = import.meta.env.DEV ? `${apiBase}/scan-folder` : `${apiBase}/scan_folder.asp`;
+      const endpoint = import.meta.env.DEV ? `http://localhost:3001/scan-folder` : `${apiBase}/scan_folder.asp`;
       const scanRes = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -164,64 +166,60 @@ export default function ReceiptRecognition() {
             }
           }
 
-          const inv = parsedResult?.invoices?.[0] ?? parsedResult ?? {};
-          const logDetail = {
-            檔案: displayFileName,
-            耗時秒: duration,
-            類別: inv.invoice_type ?? inv.category ?? "",
-            廠商: inv.supplier_name ?? "",
-            統編: inv.supplier_tax_id ?? "",
-            日期: inv.invoice_date ?? "",
-            發票號碼: inv.invoice_number ?? "",
-            含稅金額: inv.total_amount ?? 0,
-            稅額: inv.tax_amount ?? 0,
-          };
+          // 處理多筆發票的情況
+          const invoices = Array.isArray(parsedResult?.invoices)
+            ? parsedResult.invoices
+            : [parsedResult?.invoices ?? parsedResult ?? {}];
 
-          const logMsg = `[DevMode] ${displayFileName} | ${duration}s`;
-          console.log(logMsg, logDetail);
+          const logMsg = `[DevMode] ${displayFileName} | ${duration}s | 辨識到 ${invoices.length} 筆票據`;
+          console.log(logMsg, parsedResult);
 
-          const apiBaseForLogs = getApiBase();
-          const logEndpoint = import.meta.env.DEV ? `${apiBaseForLogs}/log` : `${apiBaseForLogs}/save_ocr.asp`;
+          // 開發者模式下不寫入後端資料庫，僅記錄到本地 Node.js Log
+          if (import.meta.env.DEV) {
+            const logEndpoint = "http://localhost:3001/log";
 
-          // 呼叫 C# API 儲存 OCR 結果 (DAO 模式)
-          if (parsedResult) {
-            const csharpApiUrl = "/ocr/process"; // 修改為 /ocr/ 路徑
-            const receiptData = {
-                DOC_ID: "", // 由後端生成
-                SELLER_NAME: inv.supplier_name || "Unknown",
-                INVOICE_DATE: inv.invoice_date || new Date().toISOString(),
-                AMT_TOTAL: inv.total_amount || 0,
-                TAX_AMT: inv.tax_amount || 0,
-                INVOICE_NO: inv.invoice_number || "",
-                // 根據 TFGAOCRV 模型對應
-            };
+            // 逐筆寫入 Log
+            for (const inv of invoices) {
+              const logDetail = {
+                檔案: displayFileName,
+                耗時秒: duration,
+                類別: inv.invoice_type ?? inv.category ?? "",
+                廠商: inv.supplier_name ?? "",
+                統編: inv.supplier_tax_id ?? "",
+                買受人: inv.buyer_name ?? "",
+                買受統編: inv.buyer_tax_id ?? "",
+                是否修改: inv.is_remodified ? "Y" : "N",
+                是否重複: inv.is_reused ? "Y" : "N",
+                日期: inv.invoice_date ?? "",
+                發票號碼: inv.invoice_number ?? "",
+                含稅金額: inv.total_amount ?? 0,
+                稅額: inv.tax_amount ?? 0,
+                稅額類型: inv.tax_type ?? "0",
+              };
 
-            await fetch(csharpApiUrl, {
+              await fetch(logEndpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(receiptData)
-            }).catch(err => console.error("C# API Save Failed:", err));
+                body: JSON.stringify({ message: logMsg, detail: logDetail })
+              }).catch((err) => {
+                console.warn("未能寫入本地 Log:", err.message);
+              });
+            }
           }
-
-          await fetch(logEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: logMsg, detail: logDetail })
-          }).catch(() => { });
 
         } catch (e: any) {
           const duration = (Date.now() - fileStartTime) / 1000;
-          const logMsg = `[DevMode] ${displayFileName} | ${duration}s`;
+          const logMsg = `[DevMode] ${displayFileName} | ${duration}s | Error: ${e.message}`;
           console.error(logMsg, e.message);
 
-          const apiBaseForLogs = getApiBase();
-          const logEndpoint = import.meta.env.DEV ? `${apiBaseForLogs}/log` : `${apiBaseForLogs}/save_ocr.asp`;
-
-          await fetch(logEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: logMsg, detail: { 檔案: displayFileName, 耗時秒: duration } })
-          }).catch(() => { });
+          if (import.meta.env.DEV) {
+            const logEndpoint = "http://localhost:3001/log";
+            await fetch(logEndpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: logMsg, detail: { 檔案: displayFileName, 耗時秒: duration, 錯誤: e.message } })
+            }).catch(() => { });
+          }
         }
       };
 
@@ -242,13 +240,13 @@ export default function ReceiptRecognition() {
             } catch (pdfErr: any) {
               const logMsg = `[DevMode] Iteration ${i + 1}, File: ${fileData.fileName} | Status: PDF Conversion Failed (${pdfErr.message}) | Took: 0s`;
               console.error(logMsg);
-              const apiBase = getApiBase();
-              const logEndpoint = import.meta.env.DEV ? `${apiBase}/log` : `${apiBase}/save_ocr.asp`;
-              await fetch(logEndpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: logMsg })
-              }).catch(() => { });
+              if (import.meta.env.DEV) {
+                await fetch("http://localhost:3001/log", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ message: logMsg })
+                }).catch(() => { });
+              }
             }
           } else {
             await processSingleImage(fileData.base64Data, fileData.fileName, i + 1);
@@ -396,9 +394,15 @@ export default function ReceiptRecognition() {
             invoice_number: content.invoice_number || null,
             amount_with_tax: String(item.amount || item.amount_with_tax || 0),
             input_tax: String(finalTaxAmount),
+            tax_type: content.tax_type ?? "0",
+            buyer_name: content.buyer_name || "",
+            buyer_tax_id: content.buyer_tax_id || "",
+            is_remodified: false,
+            is_reused: false,
             editable: true,
             confirmed: false,
             sourceBlockIds: [],
+            pageNumber: fileResult.pageNumber,
             description: item.description || "",
           }));
 
@@ -412,9 +416,15 @@ export default function ReceiptRecognition() {
               invoice_number: content.invoice_number || null,
               amount_with_tax: String(content.total_amount || 0),
               input_tax: String(finalTaxAmount),
+              tax_type: content.tax_type ?? "0",
+              buyer_name: content.buyer_name || "",
+              buyer_tax_id: content.buyer_tax_id || "",
+              is_remodified: false,
+              is_reused: false,
               editable: true,
               confirmed: false,
               sourceBlockIds: [],
+              pageNumber: fileResult.pageNumber,
               description: "合計項目"
             });
           }
@@ -480,6 +490,7 @@ export default function ReceiptRecognition() {
         id: uf.id,
         fileName: uf.fileName,
         imageUrl: uf.imageUrl,
+        pageNumber: uf.pageNumber,
         status: 'pending' as const,
         lineItems: [],
         ocrBlocks: [],
@@ -510,22 +521,21 @@ export default function ReceiptRecognition() {
         // Process the file with retry logic
         const fileItem = uploadedFiles[i];
 
-        // 同步備份檔案到本地資料夾 (僅非 PDF 頁面才備份圖片，PDF 原始檔已在 Uploader 處理)
+        // 同步備份檔案到本地資料夾
         if (!fileItem.pageNumber) {
           fileToBase64(fileItem.file).then(base64 => {
             const rawBase64 = base64.split(',')[1];
             const apiBase = getApiBase();
-            const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save_ocr.asp`;
-            const userInfo = getURLUserInfo();
+            const endpoint = import.meta.env.DEV ? `${apiBase}/save-file` : `${apiBase}/save-temp`;
 
+            const userInfo = getURLUserInfo();
             fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 fileName: fileItem.fileName,
                 base64Data: rawBase64,
-                ...userInfo,
-                model: selectedModel
+                ...userInfo
               })
             }).catch(err => console.error('備份檔案失敗:', err));
           });
@@ -533,6 +543,21 @@ export default function ReceiptRecognition() {
 
         const result = await processFileWithRetry(results[i], fileItem.file);
         results[i] = result;
+
+        // 檢查欄位長度並提示
+        if (result.status === 'success' && result.lineItems.length > 0) {
+          result.lineItems.forEach(item => {
+            const lengthErrors = validateOCRFieldLengths(item);
+            if (lengthErrors.length > 0) {
+              toast({
+                title: `檔案 ${result.fileName} 欄位長度超限`,
+                description: lengthErrors.join('、') + '，請確認後再提交',
+                variant: 'destructive',
+              });
+            }
+          });
+        }
+
         if (result.usage) {
           totalUsage.prompt_tokens += result.usage.prompt_tokens || 0;
           totalUsage.completion_tokens += result.usage.completion_tokens || 0;
@@ -546,43 +571,51 @@ export default function ReceiptRecognition() {
       const logMsg = `Batch Recognition took ${duration}s for ${uploadedFiles.length} files. Tokens: Prompt=${totalUsage.prompt_tokens}, Completion=${totalUsage.completion_tokens}, Total=${totalUsage.total_tokens}`;
       console.log(`[OCR Performance] ${logMsg}`);
 
-      // 自動傳送到日誌伺服器
+      // 自動傳送到日誌伺服器 (僅開發模式使用 ocr-logger.js)
       const apiBase = getApiBase();
-      const logEndpoint = import.meta.env.DEV ? `${apiBase}/log` : `${apiBase}/save_ocr.asp`;
+      const isDev = import.meta.env.DEV;
+      const logEndpoint = isDev ? `${apiBase}/log` : null;
       const userInfo = getURLUserInfo();
 
-      fetch(logEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: logMsg,
-          ...userInfo,
-          model: selectedModel
-        })
-      }).catch(() => { });
+      if (logEndpoint) {
+        fetch(logEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: logMsg,
+            ...userInfo,
+            model: selectedModel
+          })
+        }).catch(() => { });
 
-      // 每張發票詳細 log
-      const avgDuration = duration / uploadedFiles.length;
-      for (const result of results) {
-        if (result.status === 'success' && result.lineItems.length > 0) {
-          for (const item of result.lineItems) {
-            const logDetail = {
-              檔案: result.fileName,
-              耗時秒: Math.round(avgDuration * 100) / 100,
-              類別: item.category || "0",
-              廠商: item.vendor || "",
-              統編: item.tax_id || "",
-              日期: item.date || "",
-              發票號碼: item.invoice_number || "",
-              含稅金額: Number(item.amount_with_tax) || 0,
-              稅額: Number(item.input_tax) || 0,
-            };
-            const detailMsg = `${result.fileName} | ${avgDuration.toFixed(2)}s`;
-            fetch(logEndpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message: detailMsg, detail: logDetail, ...userInfo, model: selectedModel })
-            }).catch(() => { });
+        // 每張發票詳細 log
+        const avgDuration = duration / uploadedFiles.length;
+        for (const result of results) {
+          if (result.status === 'success' && result.lineItems.length > 0) {
+            for (const item of result.lineItems) {
+              const logDetail = {
+                檔案: result.fileName,
+                耗時秒: Math.round(avgDuration * 100) / 100,
+                類別: item.category || "0",
+                廠商: item.vendor || "",
+                統編: item.tax_id || "",
+                買受人: item.buyer_name || "",
+                買受統編: item.buyer_tax_id || "",
+                是否修改: item.is_remodified ? "Y" : "N",
+                是否重複: item.is_reused ? "Y" : "N",
+                日期: item.date || "",
+                發票號碼: item.invoice_number || "",
+                含稅金額: Number(item.amount_with_tax) || 0,
+                稅額: Number(item.input_tax) || 0,
+                稅額類型: item.tax_type ?? "0",
+              };
+              const detailMsg = `${result.fileName} | ${avgDuration.toFixed(2)}s`;
+              fetch(logEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: detailMsg, detail: logDetail, ...userInfo, model: selectedModel })
+              }).catch(() => { });
+            }
           }
         }
       }
@@ -747,21 +780,39 @@ export default function ReceiptRecognition() {
     const successFiles = processedFiles.filter(f => f.status === 'success');
     const allItems: ExportedLineItem[] = successFiles.flatMap(f =>
       f.lineItems.map(item => {
-        const amountWithTax = parseFloat(item.amount_with_tax) || 0;
-        const inputTax = parseFloat(item.input_tax) || 0;
-        const amountWithoutTax = amountWithTax - inputTax;
+        // 稅額類型：優先採用手動設定，否則依類別自動判斷
+        let taxType: string;
+        if (item.tax_type !== undefined && item.tax_type !== "") {
+          taxType = item.tax_type; // 手動設定優先
+        } else if (item.category === "06" || item.category === "07") {
+          taxType = "1"; // 零稅率
+        } else if (parseFloat(item.input_tax) === 0) {
+          taxType = "2"; // 免稅
+        } else {
+          taxType = "0"; // 應稅
+        }
+
+        const amtWithTax = parseFloat(item.amount_with_tax) || 0;
+        const taxAmt = parseFloat(item.input_tax) || 0;
+        const amtBeforeTax = amtWithTax - taxAmt;
 
         return {
           name: item.invoice_number,
           category: item.category,
           tax_id: item.tax_id,
           vendor: item.vendor,
+          buyer_name: item.buyer_name || "",
+          buyer_tax_id: item.buyer_tax_id || "",
           date: item.date,
-          amount_without_tax: String(amountWithoutTax),
+          amount_before_tax: String(Math.round(amtBeforeTax * 100) / 100),
+          tax_type: taxType,
           tax_amount: item.input_tax,
           amount_with_tax: item.amount_with_tax,
+          modify_note: item.is_remodified ? "Y" : "N",
+          is_reused: item.is_reused ? "Y" : "N",
           scanned_filename: f.fileName,
           file_path: `uploaded_files/${f.fileName}`,
+          page_number: item.pageNumber,
           user_id: getURLUserInfo().userid,
           username: getURLUserInfo().name,
           model: selectedModel,
@@ -817,8 +868,8 @@ export default function ReceiptRecognition() {
                   className="flex gap-3"
                 >
                   <div className="flex items-center space-x-1">
-                    <RadioGroupItem value="gpt-5.2" id="m-gpt52" />
-                    <Label htmlFor="m-gpt52" className="text-xs cursor-pointer font-bold text-red-700">GPT-5.2</Label>
+                    <RadioGroupItem value="gpt-5.4" id="m-gpt54" />
+                    <Label htmlFor="m-gpt54" className="text-xs cursor-pointer font-bold text-red-700">GPT-5.4</Label>
                   </div>
                 </RadioGroup>
               </div>

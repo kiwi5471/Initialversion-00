@@ -224,14 +224,14 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                     <Input
                       value={entry.supplier_tax_id}
                       onChange={(e) => updateEntry(entry.id, "supplier_tax_id", e.target.value)}
-                      className="h-8 text-xs w-28"
+                      className="h-8 text-xs w-48"
                     />
                   </FieldCell>
                   <FieldCell label="廠商名稱">
                     <Input
                       value={entry.supplier_name}
                       onChange={(e) => updateEntry(entry.id, "supplier_name", e.target.value)}
-                      className="h-8 text-xs w-36"
+                      className="h-8 text-xs w-48"
                     />
                   </FieldCell>
                   <FieldCell label="憑證日期">
@@ -293,7 +293,7 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                       <Input
                         value={entry.content}
                         onChange={(e) => updateEntry(entry.id, "content", e.target.value)}
-                        className="h-8 text-xs w-32"
+                        className="h-8 text-xs w-44"
                       />
                     </FieldCell>
                   </div>
@@ -303,7 +303,7 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                         type="number"
                         value={entry.quantity}
                         onChange={(e) => updateEntry(entry.id, "quantity", parseFloat(e.target.value) || 0)}
-                        className="h-8 text-xs w-16"
+                        className="h-8 text-xs w-20"
                       />
                     </FieldCell>
                     <FieldCell label="單價">
@@ -311,7 +311,7 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                         type="number"
                         value={entry.unit_price}
                         onChange={(e) => updateEntry(entry.id, "unit_price", parseFloat(e.target.value) || 0)}
-                        className="h-8 text-xs w-24"
+                        className="h-8 text-xs w-32"
                       />
                     </FieldCell>
                     <FieldCell label="幣別">
@@ -331,14 +331,14 @@ export const ExpenseTable = ({ entries, onEntriesChange }: ExpenseTableProps) =>
                         type="number"
                         value={entry.amount}
                         onChange={(e) => updateEntry(entry.id, "amount", parseFloat(e.target.value) || 0)}
-                        className="h-8 text-xs w-24 font-semibold"
+                        className="h-8 text-xs w-32 font-semibold"
                       />
                     </FieldCell>
                     <FieldCell label="備註">
                       <Input
                         value={entry.notes}
                         onChange={(e) => updateEntry(entry.id, "notes", e.target.value)}
-                        className="h-8 text-xs w-32"
+                        className="h-8 text-xs w-44"
                       />
                     </FieldCell>
                   </div>

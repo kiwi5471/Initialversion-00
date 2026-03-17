@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api-openai/, ''),
         secure: false, // 解決 SSL 憑證驗證問題 (unable to get local issuer certificate)
-        timeout: 300000, 
+        timeout: 300000,
         proxyTimeout: 300000,
       }
     }
